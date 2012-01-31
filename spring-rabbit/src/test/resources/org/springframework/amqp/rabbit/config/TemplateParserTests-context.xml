@@ -13,16 +13,12 @@
 
 	<bean id="converter" class="org.springframework.amqp.support.converter.SerializerMessageConverter"/>
 
-	<rabbit:template id="withArgs" connection-factory="connectionFactory" reply-queue-arguments="args" />
+	<rabbit:template id="withReplyQ" connection-factory="connectionFactory" reply-queue="reply.queue" />
+
+	<rabbit:queue name="reply.queue" queue-arguments="args" />
 
 	<rabbit:queue-arguments id="args">
 		<entry key="foo" value="bar" />
 	</rabbit:queue-arguments>
-
-	<rabbit:template id="withAnonArgs" connection-factory="connectionFactory" >
-		<rabbit:reply-queue-arguments id="args">
-			<entry key="baz" value="qux" />
-		</rabbit:reply-queue-arguments>
-	</rabbit:template>
 
 </beans>
