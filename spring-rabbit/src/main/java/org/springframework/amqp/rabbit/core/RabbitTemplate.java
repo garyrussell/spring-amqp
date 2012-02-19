@@ -38,6 +38,7 @@ import org.springframework.amqp.rabbit.support.MessagePropertiesConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.amqp.support.converter.SimpleMessageConverter;
 import org.springframework.util.Assert;
+import org.springframework.util.StringUtils;
 
 import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.AMQP.Queue.DeclareOk;
@@ -109,6 +110,10 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 	private volatile Queue replyQueue;
 
 	private final Map<String, LinkedBlockingQueue<Message>> replyHolder = new ConcurrentHashMap<String, LinkedBlockingQueue<Message>>();
+
+	public static final String STACKED_CORRELATION_HEADER = "spring_reply_correlation";
+
+	public static final String STACKED_REPLY_TO_HEADER = "spring_reply_to";
 
 	/**
 	 * Convenient constructor for use with setter injection. Don't forget to set the connection factory.
@@ -434,10 +439,29 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 				String messageTag = UUID.randomUUID().toString();
 				RabbitTemplate.this.replyHolder.put(messageTag, replyHandoff);
 
-				Assert.isNull(message.getMessageProperties().getReplyTo(),
-						"Send-and-receive methods can only be used if the Message does not already have a replyTo property.");
+				String replyTo = message.getMessageProperties().getReplyTo();
+				if (StringUtils.hasLength(replyTo) && logger.isDebugEnabled()) {
+					logger.debug("Dropping replyTo header:" + replyTo
+							+ " in favor of template's configured reply-queue:"
+							+ RabbitTemplate.this.replyQueue.getName());
+				}
+				String springReplyTo = (String) message.getMessageProperties()
+						.getHeaders().get(STACKED_REPLY_TO_HEADER);
+				message.getMessageProperties().setHeader(
+						STACKED_REPLY_TO_HEADER,
+						pushHeaderValue(replyTo,
+										springReplyTo));
 				message.getMessageProperties().setReplyTo(RabbitTemplate.this.replyQueue.getName());
-				message.getMessageProperties().setHeader("spring_reply_correlation", messageTag);
+				String correlation = (String) message.getMessageProperties()
+						.getHeaders().get(STACKED_CORRELATION_HEADER);
+				if (StringUtils.hasLength(correlation)) {
+					message.getMessageProperties().setHeader(
+							STACKED_CORRELATION_HEADER,
+							pushHeaderValue(messageTag, correlation));
+				} else {
+					message.getMessageProperties().setHeader(
+							"spring_reply_correlation", messageTag);
+				}
 
 				if (logger.isDebugEnabled()) {
 					logger.debug("Sending message with tag " + messageTag);
@@ -536,10 +560,23 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 	}
 
 	public void onMessage(Message message) {
-		String messageTag = (String) message.getMessageProperties().getHeaders().get("spring_reply_correlation");
+		String messageTag = (String) message.getMessageProperties()
+				.getHeaders().get(STACKED_CORRELATION_HEADER);
 		if (messageTag == null) {
 			logger.error("No correlation header in reply");
 			return;
+		}
+		PoppedHeader poppedHeaderValue = popHeaderValue(messageTag);
+		messageTag = poppedHeaderValue.getPoppedValue();
+		message.getMessageProperties().setHeader(STACKED_CORRELATION_HEADER,
+				poppedHeaderValue.getNewValue());
+		String springReplyTo = (String) message.getMessageProperties()
+				.getHeaders().get(STACKED_REPLY_TO_HEADER);
+		if (springReplyTo != null) {
+			poppedHeaderValue = popHeaderValue(springReplyTo);
+			springReplyTo = poppedHeaderValue.getNewValue();
+			message.getMessageProperties().setHeader(STACKED_REPLY_TO_HEADER, springReplyTo);
+			message.getMessageProperties().setReplyTo(null);
 		}
 		LinkedBlockingQueue<Message> queue = this.replyHolder.get(messageTag);
 		if (queue == null) {
@@ -554,4 +591,47 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 		}
 	}
 
+	private String pushHeaderValue(String newValue, String oldValue) {
+		if (oldValue == null) {
+			return newValue;
+		}
+		else {
+			return newValue + ":" + oldValue;
+		}
+	}
+
+	private PoppedHeader popHeaderValue(String value) {
+		int index = value.indexOf(":");
+		if (index < 0) {
+			return new PoppedHeader(value, null);
+		}
+		else {
+			return new PoppedHeader(value.substring(0, index), value.substring(index+1));
+		}
+	}
+
+	private static class PoppedHeader {
+
+		private final String poppedValue;
+
+		private final String newValue;
+
+		public PoppedHeader(String poppedValue, String newValue) {
+			this.poppedValue = poppedValue;
+			if (StringUtils.hasLength(newValue)) {
+				this.newValue = newValue;
+			}
+			else {
+				this.newValue = null;
+			}
+		}
+
+		public String getPoppedValue() {
+			return poppedValue;
+		}
+
+		public String getNewValue() {
+			return newValue;
+		}
+	}
 }
