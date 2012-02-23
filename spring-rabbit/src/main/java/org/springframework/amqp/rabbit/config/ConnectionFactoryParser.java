@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2011 the original author or authors.
+ * Copyright 2010-2012 the original author or authors.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -58,7 +58,11 @@ class ConnectionFactoryParser extends AbstractSingleBeanDefinitionParser {
 
 	@Override
 	protected void doParse(Element element, ParserContext parserContext, BeanDefinitionBuilder builder) {
-
+		if (element.hasAttribute(ADDRESSES) &&
+				(element.hasAttribute(HOST_ATTRIBUTE) || element.hasAttribute(PORT_ATTRIBUTE))) {
+			parserContext.getReaderContext().error("If the 'addresses' attribute is provided, a connection " +
+					"factory can not have 'host' or 'port' attributes.", element);
+		}
 		NamespaceUtils.addConstructorArgParentRefIfAttributeDefined(builder, element, CONNECTION_FACTORY_ATTRIBUTE);
 		NamespaceUtils.setValueIfAttributeDefined(builder, element, CHANNEL_CACHE_SIZE_ATTRIBUTE);
 		NamespaceUtils.setValueIfAttributeDefined(builder, element, HOST_ATTRIBUTE);
