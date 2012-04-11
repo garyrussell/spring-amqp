@@ -14,7 +14,13 @@
 package org.springframework.amqp.rabbit.core;
 
 import java.io.IOException;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.SortedMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -33,14 +39,19 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactoryUtils;
 import org.springframework.amqp.rabbit.connection.RabbitAccessor;
 import org.springframework.amqp.rabbit.connection.RabbitResourceHolder;
 import org.springframework.amqp.rabbit.connection.RabbitUtils;
+import org.springframework.amqp.rabbit.support.CorrelationData;
 import org.springframework.amqp.rabbit.support.DefaultMessagePropertiesConverter;
 import org.springframework.amqp.rabbit.support.MessagePropertiesConverter;
+import org.springframework.amqp.rabbit.support.PendingConfirm;
+import org.springframework.amqp.rabbit.support.PublisherCallbackChannel;
+import org.springframework.amqp.rabbit.support.PublisherCallbackChannelImpl;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.amqp.support.converter.SimpleMessageConverter;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
 import com.rabbitmq.client.AMQP;
+import com.rabbitmq.client.AMQP.BasicProperties;
 import com.rabbitmq.client.AMQP.Queue.DeclareOk;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.DefaultConsumer;
@@ -82,7 +93,8 @@ import com.rabbitmq.client.GetResponse;
  * @author Gary Russell
  * @since 1.0
  */
-public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, MessageListener {
+public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, MessageListener,
+	PublisherCallbackChannelImpl.Listener {
 
 	private static final String DEFAULT_EXCHANGE = ""; // alias for amq.direct default exchange
 
@@ -110,6 +122,12 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 	private volatile Queue replyQueue;
 
 	private final Map<String, LinkedBlockingQueue<Message>> replyHolder = new ConcurrentHashMap<String, LinkedBlockingQueue<Message>>();
+
+	private volatile ConfirmCallback confirmCallback;
+
+	private volatile ReturnCallback returnCallback;
+
+	private final Map<Object, SortedMap<Long, PendingConfirm>> pendingConfirms = new ConcurrentHashMap<Object, SortedMap<Long, PendingConfirm>>();
 
 	public static final String STACKED_CORRELATION_HEADER = "spring_reply_correlation";
 
@@ -239,6 +257,43 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 		return this.messageConverter;
 	}
 
+	public void setConfirmCallback(ConfirmCallback confirmCallback) {
+		this.confirmCallback = confirmCallback;
+	}
+
+	public void setReturnCallback(ReturnCallback returnCallback) {
+		this.returnCallback = returnCallback;
+	}
+
+	/**
+	 * Gets unconfirmed correlatiom data older than age and removes them.
+	 * @param age in millseconds
+	 * @return the collection of correlation ids for which confirms have
+	 * not been received.
+	 */
+	public Collection<CorrelationData> getUnconfirmed(long age) {
+		Set<CorrelationData> unconfirmed = new HashSet<CorrelationData>();
+		synchronized (this.pendingConfirms) {
+			long threshold = System.currentTimeMillis() - age;
+			for (Entry<Object, SortedMap<Long, PendingConfirm>> channelPendingConfirmEntry : this.pendingConfirms.entrySet()) {
+				SortedMap<Long, PendingConfirm> channelPendingConfirms = channelPendingConfirmEntry.getValue();
+				Iterator<Entry<Long, PendingConfirm>> iterator = channelPendingConfirms.entrySet().iterator();
+				PendingConfirm pendingConfirm;
+				while (iterator.hasNext()) {
+					pendingConfirm = iterator.next().getValue();
+					if (pendingConfirm.getTimestamp() < threshold) {
+						unconfirmed.add(pendingConfirm.getCorrelationData());
+						iterator.remove();
+					}
+					else {
+						break;
+					}
+				}
+			}
+		}
+		return unconfirmed;
+	}
+
 	public void send(Message message) throws AmqpException {
 		send(this.exchange, this.routingKey, message);
 	}
@@ -248,24 +303,42 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 	}
 
 	public void send(final String exchange, final String routingKey, final Message message) throws AmqpException {
+		this.send(exchange, routingKey, message, null);
+	}
+
+	public void send(final String exchange, final String routingKey,
+			final Message message, final CorrelationData correlationData)
+			throws AmqpException {
 		execute(new ChannelCallback<Object>() {
 			public Object doInRabbit(Channel channel) throws Exception {
-				doSend(channel, exchange, routingKey, message);
+				doSend(channel, exchange, routingKey, message, correlationData);
 				return null;
 			}
 		});
 	}
 
 	public void convertAndSend(Object object) throws AmqpException {
-		convertAndSend(this.exchange, this.routingKey, object);
+		convertAndSend(this.exchange, this.routingKey, object, (CorrelationData) null);
+	}
+
+	public void correlationconvertAndSend(Object object, CorrelationData correlationData) throws AmqpException {
+		convertAndSend(this.exchange, this.routingKey, object, correlationData);
 	}
 
 	public void convertAndSend(String routingKey, final Object object) throws AmqpException {
-		convertAndSend(this.exchange, routingKey, object);
+		convertAndSend(this.exchange, routingKey, object, (CorrelationData) null);
+	}
+
+	public void convertAndSend(String routingKey, final Object object, CorrelationData correlationData) throws AmqpException {
+		convertAndSend(this.exchange, routingKey, object, correlationData);
 	}
 
 	public void convertAndSend(String exchange, String routingKey, final Object object) throws AmqpException {
-		send(exchange, routingKey, getRequiredMessageConverter().toMessage(object, new MessageProperties()));
+		convertAndSend(exchange, routingKey, object, (CorrelationData) null);
+	}
+
+	public void convertAndSend(String exchange, String routingKey, final Object object, CorrelationData corrationData) throws AmqpException {
+		send(exchange, routingKey, getRequiredMessageConverter().toMessage(object, new MessageProperties()), corrationData);
 	}
 
 	public void convertAndSend(Object message, MessagePostProcessor messagePostProcessor) throws AmqpException {
@@ -274,14 +347,25 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 
 	public void convertAndSend(String routingKey, Object message, MessagePostProcessor messagePostProcessor)
 			throws AmqpException {
-		convertAndSend(this.exchange, routingKey, message, messagePostProcessor);
+		convertAndSend(this.exchange, routingKey, message, messagePostProcessor, null);
+	}
+
+	public void convertAndSend(String routingKey, Object message, MessagePostProcessor messagePostProcessor,
+				CorrelationData correlationData)
+			throws AmqpException {
+		convertAndSend(this.exchange, routingKey, message, messagePostProcessor, correlationData);
 	}
 
 	public void convertAndSend(String exchange, String routingKey, final Object message,
 			final MessagePostProcessor messagePostProcessor) throws AmqpException {
+		convertAndSend(this.exchange, routingKey, message, messagePostProcessor, null);
+	}
+
+	public void convertAndSend(String exchange, String routingKey, final Object message,
+			final MessagePostProcessor messagePostProcessor, CorrelationData correlationData) throws AmqpException {
 		Message messageToSend = getRequiredMessageConverter().toMessage(message, new MessageProperties());
 		messageToSend = messagePostProcessor.postProcessMessage(messageToSend);
-		send(exchange, routingKey, messageToSend);
+		send(exchange, routingKey, messageToSend, correlationData);
 	}
 
 	public Message receive() throws AmqpException {
@@ -422,7 +506,7 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 					}
 				};
 				channel.basicConsume(replyTo, noAck, consumerTag, noLocal, exclusive, null, consumer);
-				doSend(channel, exchange, routingKey, message);
+				doSend(channel, exchange, routingKey, message, null);
 				Message reply = (replyTimeout < 0) ? replyHandoff.take() : replyHandoff.poll(replyTimeout,
 						TimeUnit.MILLISECONDS);
 				channel.basicCancel(consumerTag);
@@ -466,7 +550,7 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 				if (logger.isDebugEnabled()) {
 					logger.debug("Sending message with tag " + messageTag);
 				}
-				doSend(channel, exchange, routingKey, message);
+				doSend(channel, exchange, routingKey, message, null);
 				Message reply = (replyTimeout < 0) ? replyHandoff.take() : replyHandoff.poll(replyTimeout,
 						TimeUnit.MILLISECONDS);
 				RabbitTemplate.this.replyHolder.remove(messageTag);
@@ -480,6 +564,9 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 		Assert.notNull(action, "Callback object must not be null");
 		RabbitResourceHolder resourceHolder = getTransactionalResourceHolder();
 		Channel channel = resourceHolder.getChannel();
+		if (this.confirmCallback != null || this.returnCallback != null) {
+			addListener(channel);
+		}
 		try {
 			if (logger.isDebugEnabled()) {
 				logger.debug("Executing callback on RabbitMQ Channel: " + channel);
@@ -504,7 +591,8 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 	 * @param message the Message to send
 	 * @throws IOException if thrown by RabbitMQ API methods
 	 */
-	protected void doSend(Channel channel, String exchange, String routingKey, Message message) throws Exception {
+	protected void doSend(Channel channel, String exchange, String routingKey, Message message,
+			CorrelationData correlationData) throws Exception {
 		if (logger.isDebugEnabled()) {
 			logger.debug("Publishing message on exchange [" + exchange + "], routingKey = [" + routingKey + "]");
 		}
@@ -518,7 +606,11 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 			// try to send to configured routing key
 			routingKey = this.routingKey;
 		}
-
+		if (this.confirmCallback != null && channel instanceof PublisherCallbackChannel) {
+			PublisherCallbackChannel publisherCallbackChannel = (PublisherCallbackChannel) channel;
+			publisherCallbackChannel.addPendingConfirm(this, channel.getNextPublishSeqNo(),
+					new PendingConfirm(correlationData, System.currentTimeMillis()));
+		}
 		channel.basicPublish(exchange, routingKey, false, false,
 				this.messagePropertiesConverter.fromMessageProperties(message.getMessageProperties(), encoding),
 				message.getBody());
@@ -557,6 +649,42 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 			throw new AmqpIllegalStateException("No 'queue' specified. Check configuration of RabbitTemplate.");
 		}
 		return name;
+	}
+
+	private void addListener(Channel channel) {
+		if (channel instanceof PublisherCallbackChannel) {
+			PublisherCallbackChannel publisherCallbackChannel = (PublisherCallbackChannel) channel;
+			SortedMap<Long, PendingConfirm> pendingConfirms = publisherCallbackChannel.addListener(this);
+			if (!this.pendingConfirms.containsKey(channel)) {
+				this.pendingConfirms.put(channel, pendingConfirms);
+				if (logger.isDebugEnabled()) {
+					logger.debug("Added pending confirms for " + channel + " to map, size now " + this.pendingConfirms.size());
+				}
+			}
+		}
+		else {
+			throw new IllegalStateException("When using publisher confirms, channels must be wrapped in a PublisherCallbackChannelImpl");
+		}
+	}
+
+	public void handleConfirm(PendingConfirm pendingConfirm, boolean ack) {
+		if (this.confirmCallback != null) {
+			this.confirmCallback.confirm(pendingConfirm.getCorrelationData(), ack);
+		}
+	}
+
+	public void handleReturn(int arg0, String arg1, String arg2, String arg3,
+			BasicProperties arg4, byte[] arg5) throws IOException {
+		// TODO Auto-generated method stub
+
+	}
+
+	public void removePendingConfirmsReference(Channel channel,
+			SortedMap<Long, PendingConfirm> unconfirmed) {
+		this.pendingConfirms.remove(channel);
+		if (logger.isDebugEnabled()) {
+			logger.debug("Removed pending confirms for " + channel + " from map, size now " + this.pendingConfirms.size());
+		}
 	}
 
 	public void onMessage(Message message) {
@@ -633,5 +761,14 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 		public String getNewValue() {
 			return newValue;
 		}
+	}
+
+	public static interface ConfirmCallback {
+
+		void confirm(CorrelationData correlationData, boolean ack);
+	}
+
+	public static interface ReturnCallback {
+
 	}
 }
