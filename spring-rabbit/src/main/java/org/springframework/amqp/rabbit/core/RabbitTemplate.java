@@ -268,7 +268,7 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 	/**
 	 * Gets unconfirmed correlatiom data older than age and removes them.
 	 * @param age in millseconds
-	 * @return the collection of correlation ids for which confirms have
+	 * @return the collection of correlation data for which confirms have
 	 * not been received.
 	 */
 	public Collection<CorrelationData> getUnconfirmed(long age) {
@@ -291,7 +291,7 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 				}
 			}
 		}
-		return unconfirmed;
+		return unconfirmed.size() > 0 ? unconfirmed : null;
 	}
 
 	public void send(Message message) throws AmqpException {

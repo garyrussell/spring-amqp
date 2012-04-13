@@ -208,7 +208,9 @@ public class CachingConnectionFactory extends AbstractConnectionFactory {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
-			channel = new PublisherCallbackChannelImpl(channel);
+			if (!(channel instanceof PublisherCallbackChannelImpl)) {
+				channel = new PublisherCallbackChannelImpl(channel);
+			}
 		}
 		// TODO returns
 		return channel;
