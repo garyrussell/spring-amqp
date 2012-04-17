@@ -17,11 +17,9 @@ package org.springframework.amqp.rabbit.support;
 
 import java.io.IOException;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -69,12 +67,12 @@ public class PublisherCallbackChannelImpl implements PublisherCallbackChannel, C
 
 	private final Channel delegate;
 
-	private final Set<Listener> listeners = Collections.synchronizedSet(new HashSet<Listener>());
+	private final Map<String, Listener> listeners = new ConcurrentHashMap<String, Listener>();
 
 	private final Map<Listener, SortedMap<Long, PendingConfirm>> pendingConfirms
 		= new ConcurrentHashMap<PublisherCallbackChannel.Listener, SortedMap<Long,PendingConfirm>>();
 
-	private final Map<Long, Listener> listenerForSeq = new ConcurrentHashMap<Long, PublisherCallbackChannel.Listener>();
+	private final Map<Long, Listener> listenerForSeq = new ConcurrentHashMap<Long, Listener>();
 
 	public PublisherCallbackChannelImpl(Channel delegate) {
 		this.delegate = delegate;
@@ -435,9 +433,10 @@ public class PublisherCallbackChannelImpl implements PublisherCallbackChannel, C
 		Assert.notNull(listener, "Listener cannot be null");
 		if (this.listeners.size() == 0) {
 			this.delegate.addConfirmListener(this);
+			this.delegate.addReturnListener(this);
 		}
-		if (!this.listeners.contains(listener)){
-			this.listeners.add(listener);
+		if (!this.listeners.values().contains(listener)){
+			this.listeners.put(listener.getUUID(), listener);
 			this.pendingConfirms.put(listener, Collections.synchronizedSortedMap(new TreeMap<Long, PendingConfirm>()));
 			if (logger.isDebugEnabled()) {
 				logger.debug("Added listener " + listener);
@@ -447,7 +446,12 @@ public class PublisherCallbackChannelImpl implements PublisherCallbackChannel, C
 	}
 
 	public synchronized boolean removeListener(Listener listener) {
-		boolean result = this.listeners.remove(listener);
+		Listener mappedListener = this.listeners.remove(listener.getUUID());
+		boolean result = mappedListener != null;
+		if (result && this.listeners.size() == 0) {
+			this.delegate.removeConfirmListener(this);
+			this.delegate.removeReturnListener(this);
+		}
 		Iterator<Entry<Long, Listener>> iterator = this.listenerForSeq.entrySet().iterator();
 		while (iterator.hasNext()) {
 			Entry<Long, Listener> entry = iterator.next();
@@ -480,7 +484,7 @@ public class PublisherCallbackChannelImpl implements PublisherCallbackChannel, C
 
 	private void processAck(long seq, boolean ack, boolean multiple) {
 		Listener listener = this.listenerForSeq.get(seq);
-		if (listener != null) {
+		if (listener != null && listener.isConfirmListener()) {
 			if (multiple) {
 				Map<Long, PendingConfirm> headMap = this.pendingConfirms.get(listener).headMap(seq + 1);
 				synchronized(this.pendingConfirms) {
@@ -519,7 +523,16 @@ public class PublisherCallbackChannelImpl implements PublisherCallbackChannel, C
 			AMQP.BasicProperties properties,
 			byte[] body) throws IOException
 	{
-
+		Object uuidObject = properties.getHeaders().get(RETURN_CORRELATION).toString();
+		Listener listener = this.listeners.get(uuidObject);
+		if (listener == null || !listener.isReturnListener()) {
+			if (logger.isWarnEnabled()) {
+				logger.warn("No Listener for returned message");
+			}
+		}
+		else {
+			listener.handleReturn(replyCode, replyText, exchange, routingKey, properties, body);
+		}
 	}
 
 // Object

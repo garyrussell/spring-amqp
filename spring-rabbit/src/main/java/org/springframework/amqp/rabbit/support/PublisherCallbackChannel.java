@@ -31,6 +31,8 @@ import com.rabbitmq.client.Channel;
  */
 public interface PublisherCallbackChannel extends Channel {
 
+	static String RETURN_CORRELATION = "spring_return_correlation";
+
 	/**
 	 * Adds a {@link Listener} and returns a reference to
 	 * the pending confirms map for that listener's pending
@@ -87,6 +89,16 @@ public interface PublisherCallbackChannel extends Channel {
 		 * @param unconfirmed The pending confirm map.
 		 */
 		void removePendingConfirmsReference(Channel channel, SortedMap<Long, PendingConfirm> unconfirmed);
+
+		/**
+		 * Returns the UUID used to identify this Listener for returns.
+		 * @return A string representation of the UUID.
+		 */
+		String getUUID();
+
+		boolean isConfirmListener();
+
+		boolean isReturnListener();
 	}
 
 }
