@@ -44,7 +44,6 @@ import org.springframework.amqp.rabbit.support.DefaultMessagePropertiesConverter
 import org.springframework.amqp.rabbit.support.MessagePropertiesConverter;
 import org.springframework.amqp.rabbit.support.PendingConfirm;
 import org.springframework.amqp.rabbit.support.PublisherCallbackChannel;
-import org.springframework.amqp.rabbit.support.PublisherCallbackChannelImpl;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.amqp.support.converter.SimpleMessageConverter;
 import org.springframework.util.Assert;
@@ -94,7 +93,7 @@ import com.rabbitmq.client.GetResponse;
  * @since 1.0
  */
 public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, MessageListener,
-	PublisherCallbackChannelImpl.Listener {
+	PublisherCallbackChannel.Listener {
 
 	private static final String DEFAULT_EXCHANGE = ""; // alias for amq.direct default exchange
 
@@ -128,6 +127,12 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 	private volatile ReturnCallback returnCallback;
 
 	private final Map<Object, SortedMap<Long, PendingConfirm>> pendingConfirms = new ConcurrentHashMap<Object, SortedMap<Long, PendingConfirm>>();
+
+	private volatile boolean mandatory;
+
+	private volatile boolean immediate;
+
+	private final String uuid = UUID.randomUUID().toString();
 
 	public static final String STACKED_CORRELATION_HEADER = "spring_reply_correlation";
 
@@ -263,6 +268,14 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 
 	public void setReturnCallback(ReturnCallback returnCallback) {
 		this.returnCallback = returnCallback;
+	}
+
+	public void setMandatory(boolean mandatory) {
+		this.mandatory = mandatory;
+	}
+
+	public void setImmediate(boolean immediate) {
+		this.immediate = immediate;
 	}
 
 	/**
@@ -611,9 +624,16 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 			publisherCallbackChannel.addPendingConfirm(this, channel.getNextPublishSeqNo(),
 					new PendingConfirm(correlationData, System.currentTimeMillis()));
 		}
-		channel.basicPublish(exchange, routingKey, false, false,
-				this.messagePropertiesConverter.fromMessageProperties(message.getMessageProperties(), encoding),
-				message.getBody());
+		boolean mandatory = this.returnCallback == null ? false  : this.mandatory;
+		boolean immediate = this.returnCallback == null ? false : this.immediate;
+		MessageProperties messageProperties = message.getMessageProperties();
+		if (mandatory || immediate) {
+			messageProperties.getHeaders().put(PublisherCallbackChannel.RETURN_CORRELATION, this.uuid);
+		}
+		BasicProperties convertedMessageProperties = this.messagePropertiesConverter
+				.fromMessageProperties(messageProperties, encoding);
+		channel.basicPublish(exchange, routingKey, mandatory, immediate,
+				convertedMessageProperties, message.getBody());
 		// Check if commit needed
 		if (isChannelLocallyTransacted(channel)) {
 			// Transacted channel created by this template -> commit.
@@ -671,12 +691,41 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 		if (this.confirmCallback != null) {
 			this.confirmCallback.confirm(pendingConfirm.getCorrelationData(), ack);
 		}
+		else {
+			if (logger.isDebugEnabled()) {
+				logger.warn("Confirm received but no callback available");
+			}
+		}
 	}
 
-	public void handleReturn(int arg0, String arg1, String arg2, String arg3,
-			BasicProperties arg4, byte[] arg5) throws IOException {
-		// TODO Auto-generated method stub
+	public void handleReturn(int replyCode,
+            String replyText,
+            String exchange,
+            String routingKey,
+            BasicProperties properties,
+            byte[] body)
+        throws IOException
+ {
+		if (this.returnCallback == null) {
+			if (logger.isWarnEnabled()) {
+				logger.warn("Returned message but no callback available");
+			}
+		}
+		else {
+			properties.getHeaders().remove(PublisherCallbackChannel.RETURN_CORRELATION);
+			MessageProperties messageProperties = messagePropertiesConverter.toMessageProperties(
+					properties, null, this.encoding);
+			Message returnedMessage = new Message(body, messageProperties);
+			this.returnCallback.returnedMessage(returnedMessage);
+		}
+	}
 
+	public boolean isConfirmListener() {
+		return this.confirmCallback != null;
+	}
+
+	public boolean isReturnListener() {
+		return this.returnCallback != null;
 	}
 
 	public void removePendingConfirmsReference(Channel channel,
@@ -685,6 +734,10 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 		if (logger.isDebugEnabled()) {
 			logger.debug("Removed pending confirms for " + channel + " from map, size now " + this.pendingConfirms.size());
 		}
+	}
+
+	public String getUUID() {
+		return this.uuid;
 	}
 
 	public void onMessage(Message message) {
@@ -770,5 +823,6 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 
 	public static interface ReturnCallback {
 
+		void returnedMessage(Message message);
 	}
 }

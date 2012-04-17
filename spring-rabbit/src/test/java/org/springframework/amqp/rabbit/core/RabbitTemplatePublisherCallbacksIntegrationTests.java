@@ -15,6 +15,7 @@ package org.springframework.amqp.rabbit.core;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -38,10 +39,12 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
+import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.amqp.rabbit.connection.SingleConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate.ConfirmCallback;
+import org.springframework.amqp.rabbit.core.RabbitTemplate.ReturnCallback;
 import org.springframework.amqp.rabbit.support.CorrelationData;
 import org.springframework.amqp.rabbit.support.PublisherCallbackChannelImpl;
 import org.springframework.amqp.rabbit.test.BrokerRunning;
@@ -86,7 +89,7 @@ public class RabbitTemplatePublisherCallbacksIntegrationTests {
 		});
 		template.convertAndSend(ROUTE, (Object) "message", new CorrelationData("abc"));
 		assertTrue(latch.await(1000, TimeUnit.MILLISECONDS));
-		assertEquals(0, template.getUnconfirmed(0).size());
+		assertNull(template.getUnconfirmed(0));
 	}
 
 	@Test
@@ -125,7 +128,7 @@ public class RabbitTemplatePublisherCallbacksIntegrationTests {
 		template.convertAndSend(ROUTE, (Object) "message", new CorrelationData("abc"));
 		threadLatch.countDown();
 		assertTrue(latch.await(5000, TimeUnit.MILLISECONDS));
-		assertEquals(0, template.getUnconfirmed(0).size());
+		assertNull(template.getUnconfirmed(0));
 	}
 
 	@Test
@@ -149,8 +152,27 @@ public class RabbitTemplatePublisherCallbacksIntegrationTests {
 		secondTemplate.convertAndSend(ROUTE, (Object) "message", new CorrelationData("def"));
 		assertTrue(latch1.await(1000, TimeUnit.MILLISECONDS));
 		assertTrue(latch2.await(1000, TimeUnit.MILLISECONDS));
-		assertEquals(0, template.getUnconfirmed(0).size());
-		assertEquals(0, secondTemplate.getUnconfirmed(0).size());
+		assertNull(template.getUnconfirmed(0));
+		assertNull(secondTemplate.getUnconfirmed(0));
+	}
+
+	@Test
+	public void testPublisherReturns() throws Exception {
+		final CountDownLatch latch = new CountDownLatch(1);
+		final List<Message> returns = new ArrayList<Message>();
+		template.setReturnCallback(new ReturnCallback() {
+			public void returnedMessage(Message message) {
+				returns.add(message);
+				latch.countDown();
+			}
+		});
+		template.setMandatory(true);
+		template.setImmediate(true);
+		template.convertAndSend(ROUTE + "junk", (Object) "message", new CorrelationData("abc"));
+		assertTrue(latch.await(1000, TimeUnit.MILLISECONDS));
+		assertEquals(1, returns.size());
+		Message message = returns.get(0);
+		assertEquals("message", new String(message.getBody(), "utf-8"));
 	}
 
 	@Test
@@ -323,6 +345,6 @@ public class RabbitTemplatePublisherCallbacksIntegrationTests {
 		callbackChannel.handleAck(2, true);
 		assertTrue(latch.await(1000, TimeUnit.MILLISECONDS));
 		Collection<CorrelationData> unconfirmed = template.getUnconfirmed(0);
-		assertEquals(0, unconfirmed.size());
+		assertNull(unconfirmed);
 	}
 }
