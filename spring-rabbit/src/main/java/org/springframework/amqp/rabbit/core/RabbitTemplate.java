@@ -263,10 +263,14 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 	}
 
 	public void setConfirmCallback(ConfirmCallback confirmCallback) {
+		Assert.state(this.confirmCallback == null || this.confirmCallback == confirmCallback,
+				"Only one ConfirmCallback is supported by each RabbitTemplate");
 		this.confirmCallback = confirmCallback;
 	}
 
 	public void setReturnCallback(ReturnCallback returnCallback) {
+		Assert.state(this.returnCallback == null || this.returnCallback == returnCallback,
+				"Only one ReturnCallback is supported by each RabbitTemplate");
 		this.returnCallback = returnCallback;
 	}
 
@@ -624,7 +628,7 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 			publisherCallbackChannel.addPendingConfirm(this, channel.getNextPublishSeqNo(),
 					new PendingConfirm(correlationData, System.currentTimeMillis()));
 		}
-		boolean mandatory = this.returnCallback == null ? false  : this.mandatory;
+		boolean mandatory = this.returnCallback == null ? false : this.mandatory;
 		boolean immediate = this.returnCallback == null ? false : this.immediate;
 		MessageProperties messageProperties = message.getMessageProperties();
 		if (mandatory || immediate) {
