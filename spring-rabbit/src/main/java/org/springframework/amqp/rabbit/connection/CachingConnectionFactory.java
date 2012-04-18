@@ -62,8 +62,6 @@ public class CachingConnectionFactory extends AbstractConnectionFactory {
 
 	private volatile boolean publisherConfirms;
 
-	private volatile boolean publisherReturns;
-
 	/** Synchronization monitor for the shared Connection */
 	private final Object connectionMonitor = new Object();
 
@@ -131,14 +129,6 @@ public class CachingConnectionFactory extends AbstractConnectionFactory {
 
 	public void setPublisherConfirms(boolean publisherConfirms) {
 		this.publisherConfirms = publisherConfirms;
-	}
-
-	public boolean isPublisherReturns() {
-		return publisherReturns;
-	}
-
-	public void setPublisherReturns(boolean publisherReturns) {
-		this.publisherReturns = publisherReturns;
 	}
 
 	public void setConnectionListeners(List<? extends ConnectionListener> listeners) {
