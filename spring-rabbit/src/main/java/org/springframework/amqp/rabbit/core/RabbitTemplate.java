@@ -720,7 +720,8 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 			MessageProperties messageProperties = messagePropertiesConverter.toMessageProperties(
 					properties, null, this.encoding);
 			Message returnedMessage = new Message(body, messageProperties);
-			this.returnCallback.returnedMessage(returnedMessage);
+			this.returnCallback.returnedMessage(returnedMessage,
+					replyCode, replyText, exchange, routingKey);
 		}
 	}
 
@@ -827,6 +828,7 @@ public class RabbitTemplate extends RabbitAccessor implements RabbitOperations, 
 
 	public static interface ReturnCallback {
 
-		void returnedMessage(Message message);
+		void returnedMessage(Message message, int replyCode, String replyText,
+				String exchange, String routingKey);
 	}
 }

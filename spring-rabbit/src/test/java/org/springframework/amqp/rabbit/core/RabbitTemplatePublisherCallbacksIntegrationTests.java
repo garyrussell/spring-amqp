@@ -161,7 +161,8 @@ public class RabbitTemplatePublisherCallbacksIntegrationTests {
 		final CountDownLatch latch = new CountDownLatch(1);
 		final List<Message> returns = new ArrayList<Message>();
 		template.setReturnCallback(new ReturnCallback() {
-			public void returnedMessage(Message message) {
+			public void returnedMessage(Message message, int replyCode,
+					String replyText, String exchange, String routingKey) {
 				returns.add(message);
 				latch.countDown();
 			}
