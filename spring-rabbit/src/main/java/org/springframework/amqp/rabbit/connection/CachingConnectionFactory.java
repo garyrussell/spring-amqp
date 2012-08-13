@@ -350,8 +350,10 @@ public class CachingConnectionFactory extends AbstractConnectionFactory {
 			} catch (InvocationTargetException ex) {
 				if (this.target == null || !this.target.isOpen()) {
 					// Basic re-connection logic...
+					if (logger.isDebugEnabled()) {
+						logger.debug("Detected closed channel on exception.  Re-initializing: " + target, ex);
+					}
 					this.target = null;
-					logger.debug("Detected closed channel on exception.  Re-initializing: " + target);
 					synchronized (targetMonitor) {
 						if (this.target == null) {
 							this.target = createBareChannel(transactional);

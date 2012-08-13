@@ -1,11 +1,11 @@
 /*
  * Copyright 2002-2010 the original author or authors.
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
- * 
+ *
  * http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
  * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
  * specific language governing permissions and limitations under the License.
@@ -37,15 +37,18 @@ import com.rabbitmq.client.Channel;
 
 /**
  * RabbitMQ implementation of portable AMQP administrative operations for AMQP >= 0.9.1
- * 
+ *
  * @author Mark Pollack
  * @author Mark Fisher
  * @author Dave Syer
  * @author Ed Scriven
+ * @author Gary Russell
  */
 public class RabbitAdmin implements AmqpAdmin, ApplicationContextAware, InitializingBean {
 
 	protected static final String DEFAULT_EXCHANGE_NAME = "";
+
+	private static final int DEFAULT_DECLARATION_ATTEMPTS = 5;
 
 	/** Logger available to subclasses */
 	protected final Log logger = LogFactory.getLog(getClass());
@@ -62,6 +65,8 @@ public class RabbitAdmin implements AmqpAdmin, ApplicationContextAware, Initiali
 
 	private final ConnectionFactory connectionFactory;
 
+	private volatile int declarationAttemptsAllowed = DEFAULT_DECLARATION_ATTEMPTS;
+
 	public RabbitAdmin(ConnectionFactory connectionFactory) {
 		this.connectionFactory = connectionFactory;
 		Assert.notNull(connectionFactory, "ConnectionFactory must not be null");
@@ -74,6 +79,10 @@ public class RabbitAdmin implements AmqpAdmin, ApplicationContextAware, Initiali
 
 	public void setApplicationContext(ApplicationContext applicationContext) {
 		this.applicationContext = applicationContext;
+	}
+
+	public void setDeclarationAttemptsAllowed(int declarationAttemptsAllowed) {
+		this.declarationAttemptsAllowed = declarationAttemptsAllowed;
 	}
 
 	public RabbitTemplate getRabbitTemplate() {
@@ -211,7 +220,7 @@ public class RabbitAdmin implements AmqpAdmin, ApplicationContextAware, Initiali
 	 * {@link ConnectionFactory} to declare all exchanges and queues in the enclosing application context. If the
 	 * callback fails then it may cause other clients of the connection factory to fail, but since only exchanges,
 	 * queues and bindings are declared failure is not expected.
-	 * 
+	 *
 	 * @see InitializingBean#afterPropertiesSet()
 	 * @see #initialize()
 	 */
@@ -261,6 +270,19 @@ public class RabbitAdmin implements AmqpAdmin, ApplicationContextAware, Initiali
 	 * (but unnecessary) to call this method more than once.
 	 */
 	public void initialize() {
+		int attempts = this.declarationAttemptsAllowed;
+		while (attempts-- > 0) {
+			try {
+				doInitialize();
+				attempts = 0;
+			}
+			catch (Exception e) {
+				logger.error("Declarations failed; attempts left:" + attempts, e);
+			}
+		}
+	}
+
+	private void doInitialize() {
 
 		if (this.applicationContext == null) {
 			if (this.logger.isDebugEnabled()) {
@@ -394,7 +416,7 @@ public class RabbitAdmin implements AmqpAdmin, ApplicationContextAware, Initiali
 	private boolean isDeclaringImplicitQueueBinding(Binding binding) {
 		if (isImplicitQueueBinding(binding)) {
 			if (logger.isDebugEnabled()) {
-				logger.debug("The default exchange is implicitly bound to every queue, with a routing key equal to the queue name.");	
+				logger.debug("The default exchange is implicitly bound to every queue, with a routing key equal to the queue name.");
 			}
 			return true;
 		}
