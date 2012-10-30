@@ -84,6 +84,8 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 
 	private Set<BlockingQueueConsumer> consumers;
 
+	private final ActiveObjectCounter<AsyncMessageProcessingConsumer> activeConsumers = new ActiveObjectCounter<AsyncMessageProcessingConsumer>();
+
 	private final Object consumersMonitor = new Object();
 
 	private PlatformTransactionManager transactionManager;
@@ -92,7 +94,7 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 
 	private volatile Advice[] adviceChain = new Advice[0];
 
-	private ActiveObjectCounter<BlockingQueueConsumer> cancellationLock = new ActiveObjectCounter<BlockingQueueConsumer>();
+	private final ActiveObjectCounter<BlockingQueueConsumer> cancellationLock = new ActiveObjectCounter<BlockingQueueConsumer>();
 
 	private volatile MessagePropertiesConverter messagePropertiesConverter = new DefaultMessagePropertiesConverter();
 
@@ -331,6 +333,7 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 			for (BlockingQueueConsumer consumer : this.consumers) {
 				AsyncMessageProcessingConsumer processor = new AsyncMessageProcessingConsumer(consumer);
 				processors.add(processor);
+				this.activeConsumers.add(processor);
 				this.taskExecutor.execute(processor);
 			}
 			for (AsyncMessageProcessingConsumer processor : processors) {
@@ -355,15 +358,38 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 			return;
 		}
 
+		/*
+		 * Immediately cancel consumers so that any in-flight messages that are rejected
+		 * during shutdown are not redelivered to the BlockingQueue.
+		 */
+		synchronized (this.consumersMonitor) {
+			for (BlockingQueueConsumer consumer : this.consumers) {
+				if (logger.isDebugEnabled()) {
+					logger.debug("Canceling " + consumer);
+				}
+				consumer.cancelConsumer();
+			}
+		}
+
 		try {
-			logger.info("Waiting for workers to finish.");
+			logger.info("Waiting for consumers to cancel.");
 			boolean finished = cancellationLock.await(shutdownTimeout, TimeUnit.MILLISECONDS);
 			if (finished) {
-				logger.info("Successfully waited for workers to finish.");
-			} else {
+				logger.info("Successfully waited for consumers to cancel.");
+			}
+			else {
 				logger.info("Workers not finished.  Forcing connections to close.");
 			}
-		} catch (InterruptedException e) {
+			logger.info("Waiting for workers to finish.");
+			finished = this.activeConsumers.await(shutdownTimeout, TimeUnit.MILLISECONDS);
+			if (finished) {
+				logger.info("Successfully waited for workers to finish.");
+			}
+			else {
+				logger.info("Workers not finished.  Forcing connections to close.");
+			}
+		}
+		catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
 			logger.warn("Interrupted waiting for workers.  Continuing with shutdown.");
 		}
@@ -578,13 +604,16 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 				if (SimpleMessageListenerContainer.this.transactionManager != null) {
 					ConnectionFactoryUtils.unRegisterConsumerChannel();
 				}
+				SimpleMessageListenerContainer.this.activeConsumers.release(this);
 			}
 
 			// In all cases count down to allow container to progress beyond startup
 			start.countDown();
 
 			if (!isActive() || aborted) {
-				logger.debug("Cancelling " + consumer);
+				if (logger.isDebugEnabled()) {
+					logger.debug("Stopping " + consumer);
+				}
 				try {
 					consumer.stop();
 				} catch (AmqpException e) {
