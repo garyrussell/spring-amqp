@@ -98,6 +98,9 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 
 	private volatile boolean defaultRequeueRejected = true;
 
+	@SuppressWarnings("unused")
+	private MetricType dummyToFixBundlor;
+
 	public static interface ContainerDelegate {
 		void invokeListener(Channel channel, Message message) throws Exception;
 	}

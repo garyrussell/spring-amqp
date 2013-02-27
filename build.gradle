@@ -230,7 +230,7 @@ project('spring-rabbit') {
 			'org.springframework.core;version="[3.0.5, 4.0.0)"',
 			'org.springframework.core.task;version="[3.0.5, 4.0.0)"',
 			'org.springframework.jmx.export.annotation;version="[3.0.5, 4.0.0)"',
-			'org.springframework.jmx.support;version="[3.0.5,4.0.0)"',
+			'org.springframework.jmx.support;version="[3.0.5, 4.0.0)"',
 			'org.springframework.retry;version="[1.0.0, 1.1.0)";resolution:="optional"',
 			'org.springframework.retry.interceptor;version="[1.0.1, 1.1.0)";resolution:="optional"',
 			'org.springframework.retry.policy;version="[1.0.1, 1.1.0)";resolution:="optional"',
