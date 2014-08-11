@@ -580,6 +580,7 @@ public class PublisherCallbackChannelImpl implements PublisherCallbackChannel, C
 			}
 			this.pendingConfirms.clear();
 			this.listenerForSeq.clear();
+			this.listeners.clear();
 		}
 	}
 
