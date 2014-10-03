@@ -777,9 +777,9 @@ public static MessagePropertiesBuilder fromClonedProperties(MessageProperties pr
 	  </para>
 	  <para>
 		Starting with <emphasis>version 1.4</emphasis> the <classname>RabbitTemplate</classname> supports
-		SpEL <code>mandatoryExpression</code> property, which is evaluated against each request message, as root
-		evaluation object, to the <code>boolean</code> value within <interfacename>BeanFactory</interfacename>
-		<interfacename>EvaluationContext</interfacename>.
+		the SpEL <code>mandatoryExpression</code> property, which is evaluated against each request message, as the root
+		evaluation object, resolving to a <code>boolean</code> value. Bean references, such as
+		<code>"@myBean.isMandatory(#root)"</code> can be used in the expression.
       </para>
     </section>
   </section>

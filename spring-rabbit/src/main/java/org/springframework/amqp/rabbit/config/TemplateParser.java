@@ -55,8 +55,6 @@ class TemplateParser extends AbstractSingleBeanDefinitionParser {
 
 	private static final String MANDATORY_ATTRIBUTE = "mandatory";
 
-	private static final String IMMEDIATE_ATTRIBUTE = "immediate";
-
 	private static final String RETURN_CALLBACK_ATTRIBUTE = "return-callback";
 
 	private static final String CONFIRM_CALLBACK_ATTRIBUTE = "confirm-callback";
@@ -102,7 +100,6 @@ class TemplateParser extends AbstractSingleBeanDefinitionParser {
 		NamespaceUtils.setValueIfAttributeDefined(builder, element, ENCODING_ATTRIBUTE);
 		NamespaceUtils.setReferenceIfAttributeDefined(builder, element, MESSAGE_CONVERTER_ATTRIBUTE);
 		NamespaceUtils.setReferenceIfAttributeDefined(builder, element, REPLY_QUEUE_ATTRIBUTE);
-		NamespaceUtils.setValueIfAttributeDefined(builder, element, IMMEDIATE_ATTRIBUTE);
 		NamespaceUtils.setReferenceIfAttributeDefined(builder, element, RETURN_CALLBACK_ATTRIBUTE);
 		NamespaceUtils.setReferenceIfAttributeDefined(builder, element, CONFIRM_CALLBACK_ATTRIBUTE);
 		NamespaceUtils.setValueIfAttributeDefined(builder, element, CORRELATION_KEY);

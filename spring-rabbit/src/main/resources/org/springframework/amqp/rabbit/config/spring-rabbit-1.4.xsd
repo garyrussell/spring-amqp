@@ -991,8 +991,9 @@
 			<xsd:attribute name="mandatory-expression" use="optional" type="xsd:string">
 				<xsd:annotation>
 					<xsd:documentation><![CDATA[
-	The SpEL expression to be evaluated against each request message to determine a 'mandatory' boolean value.
-	The BeanFactoryResolver is available too, if RabbitTemplate is used from Spring Context.
+	A SpEL expression to be evaluated against each request message to determine a 'mandatory' boolean value.
+	The BeanFactoryResolver is available too, if the RabbitTemplate is used from Spring Context,
+	allowing for expressions such as '@myBean.isMandatory(#root)`.
 	Only applies if a 'return-callback' is provided. Mutually exclusive with 'mandatory'.
 					]]></xsd:documentation>
 				</xsd:annotation>

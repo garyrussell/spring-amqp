@@ -60,7 +60,6 @@ import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.BeanFactoryAware;
 import org.springframework.context.expression.BeanFactoryResolver;
 import org.springframework.context.expression.MapAccessor;
-import org.springframework.expression.EvaluationContext;
 import org.springframework.expression.Expression;
 import org.springframework.expression.spel.support.StandardEvaluationContext;
 import org.springframework.retry.RetryCallback;
@@ -159,7 +158,7 @@ public class RabbitTemplate extends RabbitAccessor implements BeanFactoryAware, 
 
 	private volatile RetryTemplate retryTemplate;
 
-	private volatile EvaluationContext evaluationContext = new StandardEvaluationContext();
+	private final StandardEvaluationContext evaluationContext = new StandardEvaluationContext();
 
 	private final ReplyToAddressCallback<?> defaultReplyToAddressCallback = new ReplyToAddressCallback<Object>() {
 
@@ -317,13 +316,13 @@ public class RabbitTemplate extends RabbitAccessor implements BeanFactoryAware, 
 	}
 
 	/**
-	 * @param mandatoryExpression the SpEL {@link Expression} to evaluated against each request
-	 * message if {@link #returnCallback} is in use. The result of expression must be evaluated
-	 * to {@code boolean}
+	 * @param mandatoryExpression a SpEL {@link Expression} to evaluate against each request
+	 * message, if a {@link #returnCallback} has been provided. The result of expression must be
+	 * to {@code boolean} value.
 	 * @since 1.4
 	 */
 	public void setMandatoryExpression(Expression mandatoryExpression) {
-		Assert.notNull(mandatoryExpression);
+		Assert.notNull(mandatoryExpression, "'mandatoryExpression' must not be null");
 		this.mandatoryExpression = mandatoryExpression;
 	}
 
@@ -349,10 +348,8 @@ public class RabbitTemplate extends RabbitAccessor implements BeanFactoryAware, 
 
 	@Override
 	public void setBeanFactory(BeanFactory beanFactory) throws BeansException {
-		StandardEvaluationContext evaluationContext = new StandardEvaluationContext();
-		evaluationContext.setBeanResolver(new BeanFactoryResolver(beanFactory));
-		evaluationContext.addPropertyAccessor(new MapAccessor());
-		this.evaluationContext = evaluationContext;
+		this.evaluationContext.setBeanResolver(new BeanFactoryResolver(beanFactory));
+		this.evaluationContext.addPropertyAccessor(new MapAccessor());
 	}
 
 	/**
