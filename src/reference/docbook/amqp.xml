@@ -900,8 +900,8 @@ if (received) {
     is a container for a Message consuming callback. We will look at the
     container and its properties in just a moment, but first we should look at
     the callback since that is where your application code will be integrated
-    with the messaging system. There are a few options for the callback. The
-    lowest level of these is to implement the
+    with the messaging system. There are a few options for the callback
+    starting with an implementation of the
     <interfacename>MessageListener</interfacename> interface:</para>
     <programlisting language="java"><![CDATA[public interface MessageListener {
     void onMessage(Message message);
@@ -917,7 +917,12 @@ if (received) {
     referred to as "Message-driven POJO" support. When using the adapter, you
     only need to provide a reference to the instance that the adapter itself
     should invoke.</para>
-    <programlisting language="java"><![CDATA[MessageListener listener = new MessageListenerAdapter(somePojo);]]></programlisting>
+    <programlisting language="java"><![CDATA[MessageListenerAdapter listener = new MessageListenerAdapter(somePojo);
+    listener.setDefaultListenerMethod("myMethod");]]></programlisting>
+    <para>
+    You can subclass the adapter and provide an implementation of <code>getListenerMethodName()</code>
+    to dynamically select different methods based on the message.
+    </para>
     <para>
     Now
     that you've seen the various options for the Message-listening callback,
@@ -1046,7 +1051,8 @@ container.setConsumerArguments(Collections. <String, Object> singletonMap("x-pri
     <section id="async-annotation-driven">
         <title>Annotation-driven listener endpoints</title>
 
-        <para>The easiest way to receive a message asynchronously is to use the annotated listener
+        <para>Starting with <emphasis>version 1.4</emphasis>,
+        the easiest way to receive a message asynchronously is to use the annotated listener
         endpoint infrastructure. In a nutshell, it allows you to expose a method of a managed bean
         as a Rabbit listener endpoint.
         </para><programlisting language="java"><![CDATA[
@@ -1057,7 +1063,7 @@ public class MyService {
     public void processOrder(String data) { ... }
 
 }]]></programlisting>
-        <para>The idea of the example above is that whenever a message is available on the
+        <para>The idea of the example above is that, whenever a message is available on the
         <literal>org.springframework.amqp.core.Queue</literal> "myQueue", the <literal>processOrder</literal>
         method is invoked accordingly (in this case, with the payload of the message).</para>
 
@@ -1094,7 +1100,7 @@ public class AppConfig {
          interface. The default is only required if at least one endpoint is registered without a specific container
          factory. See the javadoc for full details and examples.</para>
 
-         <para>If you prefer XML configuration use the <literal>&lt;rabbit:annotation-driven&gt;</literal> element.
+         <para>If you prefer XML configuration, use the <literal>&lt;rabbit:annotation-driven&gt;</literal> element.
          </para><programlisting language="xml"><![CDATA[
 <rabbit:annotation-driven/>
 
@@ -1107,7 +1113,7 @@ public class AppConfig {
 ]]></programlisting>
         </section>
         <section id="async-annotation-driven-registration">
-            <title>Programmatic endpoints registration</title>
+            <title>Programmatic Endpoint Registration</title>
 
             <para><literal>RabbitListenerEndpoint</literal> provides a model of a Rabbit endpoint and is
             responsible for configuring the container for that model. The infrastructure allows you to
@@ -1136,7 +1142,7 @@ public class AppConfig implements RabbitListenerConfigurer {
             altogether and only register your endpoints programmatically through RabbitListenerConfigurer.</para>
         </section>
         <section id="async-annotation-driven-enable-signature">
-            <title> Annotated endpoint method signature</title>
+            <title> Annotated Endpoint Method Signature</title>
 
             <para>So far, we have been injecting a simple String in our endpoint but it can actually have a very
             flexible method signature. Let’s rewrite it to inject the <literal>Order</literal> with a custom header:
@@ -1211,7 +1217,7 @@ public class AppConfig implements RabbitListenerConfigurer {
 }]]></programlisting>
         </section>
         <section id="async-annotation-driven-reply">
-            <title>Reply management</title>
+            <title>Reply Management</title>
             <para>The existing support in <literal>MessageListenerAdapter</literal> already allows your method to
             have a non-void return type. When that’s the case, the result of the invocation is encapsulated in a
             message sent either in the address specified in the <literal>ReplyToAddress</literal> header of
