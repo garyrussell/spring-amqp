@@ -661,7 +661,7 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 		try {
 			synchronized (consumersMonitor) {
 				if (this.consumers != null) {
-					for (BlockingQueueConsumer consumer : this.consumers.keySet()) {
+					for (RabbitConsumer consumer : this.consumers.keySet()) {
 						consumer.setQuiesce(this.shutdownTimeout);
 					}
 				}
@@ -686,7 +686,7 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 
 	}
 
-	private boolean isActive(BlockingQueueConsumer consumer) {
+	private boolean isActive(RabbitConsumer consumer) {
 		Boolean consumerActive;
 		synchronized(consumersMonitor) {
 			consumerActive = this.consumers != null && this.consumers.get(consumer);
@@ -861,7 +861,7 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 		}
 	}
 
-	private boolean receiveAndExecute(final BlockingQueueConsumer consumer) throws Throwable {
+	private boolean receiveAndExecute(final RabbitConsumer consumer) throws Throwable {
 
 		if (transactionManager != null) {
 			try {
@@ -889,7 +889,7 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 
 	}
 
-	private boolean doReceiveAndExecute(BlockingQueueConsumer consumer) throws Throwable {
+	private boolean doReceiveAndExecute(RabbitConsumer consumer) throws Throwable {
 
 		Channel channel = consumer.getChannel();
 

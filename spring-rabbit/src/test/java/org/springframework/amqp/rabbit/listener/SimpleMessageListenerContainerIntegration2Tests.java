@@ -122,7 +122,7 @@ public class SimpleMessageListenerContainerIntegration2Tests {
 		}
 		boolean waited = latch.await(10, TimeUnit.SECONDS);
 		assertTrue("Timed out waiting for message", waited);
-		BlockingQueueConsumer consumer = (BlockingQueueConsumer) TestUtils
+		RabbitConsumer consumer = (RabbitConsumer) TestUtils
 				.getPropertyValue(container, "consumers", Map.class).keySet().iterator().next();
 		admin.deleteQueue(queue1.getName());
 		latch = new CountDownLatch(10);
@@ -132,12 +132,12 @@ public class SimpleMessageListenerContainerIntegration2Tests {
 		}
 		waited = latch.await(10, TimeUnit.SECONDS);
 		assertTrue("Timed out waiting for message", waited);
-		BlockingQueueConsumer newConsumer = (BlockingQueueConsumer) TestUtils
+		RabbitConsumer newConsumer = (RabbitConsumer) TestUtils
 				.getPropertyValue(container, "consumers", Map.class).keySet().iterator().next();
 		int n = 0;
 		while (n++ < 100 && newConsumer == consumer) {
 			Thread.sleep(100);
-			newConsumer = (BlockingQueueConsumer) TestUtils
+			newConsumer = (RabbitConsumer) TestUtils
 					.getPropertyValue(container, "consumers", Map.class).keySet().iterator().next();
 		}
 		assertTrue("Failed to restart consumer", n < 100);

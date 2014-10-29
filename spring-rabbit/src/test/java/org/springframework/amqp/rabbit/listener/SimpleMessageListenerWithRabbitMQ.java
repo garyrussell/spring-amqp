@@ -79,7 +79,7 @@ public class SimpleMessageListenerWithRabbitMQ {
 		List<BlockingQueue<?>> queues = new ArrayList<BlockingQueue<?>>();
 		@SuppressWarnings("unchecked")
 		Set<BlockingQueueConsumer> consumers = (Set<BlockingQueueConsumer>) accessor.getPropertyValue("consumers");
-		for (BlockingQueueConsumer consumer : consumers) {
+		for (RabbitConsumer consumer : consumers) {
 			accessor = new DirectFieldAccessor(consumer);
 			queues.add((BlockingQueue<?>) accessor.getPropertyValue("queue"));
 		}

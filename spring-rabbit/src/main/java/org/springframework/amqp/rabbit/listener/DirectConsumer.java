@@ -25,7 +25,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -63,11 +62,9 @@ import com.rabbitmq.utility.Utility;
  * @author Gary Russell
  *
  */
-public class BlockingQueueConsumer implements RabbitConsumer {
+public class DirectConsumer implements RabbitConsumer {
 
-	private static Log logger = LogFactory.getLog(BlockingQueueConsumer.class);
-
-	private final BlockingQueue<Delivery> queue;
+	private static Log logger = LogFactory.getLog(DirectConsumer.class);
 
 	// When this is non-null the connection has been closed (should never happen in normal operation).
 	private volatile ShutdownSignalException shutdown;
@@ -96,7 +93,7 @@ public class BlockingQueueConsumer implements RabbitConsumer {
 
 	private final MessagePropertiesConverter messagePropertiesConverter;
 
-	private final ActiveObjectCounter<BlockingQueueConsumer> activeObjectCounter;
+	private final ActiveObjectCounter<DirectConsumer> activeObjectCounter;
 
 	private final Map<String, Object> consumerArgs = new HashMap<String, Object>();
 
@@ -128,9 +125,9 @@ public class BlockingQueueConsumer implements RabbitConsumer {
 	 * @param prefetchCount The prefetch count.
 	 * @param queues The queues.
 	 */
-	public BlockingQueueConsumer(ConnectionFactory connectionFactory,
+	public DirectConsumer(ConnectionFactory connectionFactory,
 			MessagePropertiesConverter messagePropertiesConverter,
-			ActiveObjectCounter<BlockingQueueConsumer> activeObjectCounter, AcknowledgeMode acknowledgeMode,
+			ActiveObjectCounter<DirectConsumer> activeObjectCounter, AcknowledgeMode acknowledgeMode,
 			boolean transactional, int prefetchCount, String... queues) {
 		this(connectionFactory, messagePropertiesConverter, activeObjectCounter,
 				acknowledgeMode, transactional, prefetchCount, true, queues);
@@ -149,9 +146,9 @@ public class BlockingQueueConsumer implements RabbitConsumer {
 	 * @param defaultRequeueRejected true to reject requeued messages.
 	 * @param queues The queues.
 	 */
-	public BlockingQueueConsumer(ConnectionFactory connectionFactory,
+	public DirectConsumer(ConnectionFactory connectionFactory,
 			MessagePropertiesConverter messagePropertiesConverter,
-			ActiveObjectCounter<BlockingQueueConsumer> activeObjectCounter, AcknowledgeMode acknowledgeMode,
+			ActiveObjectCounter<DirectConsumer> activeObjectCounter, AcknowledgeMode acknowledgeMode,
 			boolean transactional, int prefetchCount, boolean defaultRequeueRejected, String... queues) {
 		this(connectionFactory, messagePropertiesConverter, activeObjectCounter, acknowledgeMode, transactional,
 				prefetchCount, defaultRequeueRejected, null, queues);
@@ -171,9 +168,9 @@ public class BlockingQueueConsumer implements RabbitConsumer {
 	 * @param consumerArgs The consumer arguments (e.g. x-priority).
 	 * @param queues The queues.
 	 */
-	public BlockingQueueConsumer(ConnectionFactory connectionFactory,
+	public DirectConsumer(ConnectionFactory connectionFactory,
 			MessagePropertiesConverter messagePropertiesConverter,
-			ActiveObjectCounter<BlockingQueueConsumer> activeObjectCounter, AcknowledgeMode acknowledgeMode,
+			ActiveObjectCounter<DirectConsumer> activeObjectCounter, AcknowledgeMode acknowledgeMode,
 			boolean transactional, int prefetchCount, boolean defaultRequeueRejected,
 			Map<String, Object> consumerArgs, String... queues) {
 		this(connectionFactory, messagePropertiesConverter, activeObjectCounter, acknowledgeMode, transactional,
@@ -195,9 +192,9 @@ public class BlockingQueueConsumer implements RabbitConsumer {
 	 * @param exclusive true if the consumer is to be exclusive.
 	 * @param queues The queues.
 	 */
-	public BlockingQueueConsumer(ConnectionFactory connectionFactory,
+	public DirectConsumer(ConnectionFactory connectionFactory,
 			MessagePropertiesConverter messagePropertiesConverter,
-			ActiveObjectCounter<BlockingQueueConsumer> activeObjectCounter, AcknowledgeMode acknowledgeMode,
+			ActiveObjectCounter<DirectConsumer> activeObjectCounter, AcknowledgeMode acknowledgeMode,
 			boolean transactional, int prefetchCount, boolean defaultRequeueRejected,
 			Map<String, Object> consumerArgs, boolean exclusive, String... queues) {
 		this.connectionFactory = connectionFactory;
@@ -495,11 +492,11 @@ public class BlockingQueueConsumer implements RabbitConsumer {
 		@Override
 		public void handleConsumeOk(String consumerTag) {
 			super.handleConsumeOk(consumerTag);
-			synchronized(BlockingQueueConsumer.this.consumerTags) {
-				BlockingQueueConsumer.this.consumerTags.add(consumerTag);
+			synchronized(DirectConsumer.this.consumerTags) {
+				DirectConsumer.this.consumerTags.add(consumerTag);
 			}
 			if (logger.isDebugEnabled()) {
-				logger.debug("ConsumeOK : " + BlockingQueueConsumer.this);
+				logger.debug("ConsumeOK : " + DirectConsumer.this);
 			}
 		}
 
@@ -516,33 +513,33 @@ public class BlockingQueueConsumer implements RabbitConsumer {
 			shutdown = sig;
 			// The delivery tags will be invalid if the channel shuts down
 			deliveryTags.clear();
-			activeObjectCounter.release(BlockingQueueConsumer.this);
+			activeObjectCounter.release(DirectConsumer.this);
 		}
 
 		@Override
 		public void handleCancel(String consumerTag) throws IOException {
 			if (logger.isWarnEnabled()) {
-				logger.warn("Cancel received for " + consumerTag + "; " + BlockingQueueConsumer.this);
+				logger.warn("Cancel received for " + consumerTag + "; " + DirectConsumer.this);
 			}
-			synchronized (BlockingQueueConsumer.this.consumerTags) {
-				BlockingQueueConsumer.this.consumerTags.remove(consumerTag);
+			synchronized (DirectConsumer.this.consumerTags) {
+				DirectConsumer.this.consumerTags.remove(consumerTag);
 			}
-			BlockingQueueConsumer.this.cancelReceived.set(true);
+			DirectConsumer.this.cancelReceived.set(true);
 		}
 
 		@Override
 		public void handleCancelOk(String consumerTag) {
 			if (logger.isDebugEnabled()) {
-				logger.debug("Received cancellation notice for tag " + consumerTag + "; " + BlockingQueueConsumer.this);
+				logger.debug("Received cancellation notice for tag " + consumerTag + "; " + DirectConsumer.this);
 			}
-			synchronized(BlockingQueueConsumer.this.consumerTags) {
-				BlockingQueueConsumer.this.consumerTags.remove(consumerTag);
-				if (BlockingQueueConsumer.this.consumerTags.isEmpty()) {
+			synchronized(DirectConsumer.this.consumerTags) {
+				DirectConsumer.this.consumerTags.remove(consumerTag);
+				if (DirectConsumer.this.consumerTags.isEmpty()) {
 					// Signal to the container that we have been cancelled
-					activeObjectCounter.release(BlockingQueueConsumer.this);
+					activeObjectCounter.release(DirectConsumer.this);
 					if (logger.isDebugEnabled()) {
 						logger.debug("Terminating; active consumers now : " + activeObjectCounter.getCount()
-								+ " consumer: " + BlockingQueueConsumer.this);
+								+ " consumer: " + DirectConsumer.this);
 					}
 				}
 			}
@@ -553,8 +550,8 @@ public class BlockingQueueConsumer implements RabbitConsumer {
 				throws IOException {
 			if (cancelled.get()) {
 				try {
-					BlockingQueueConsumer.this.suspendClientThread.await(
-							BlockingQueueConsumer.this.shutdownTimeout, TimeUnit.MILLISECONDS);
+					DirectConsumer.this.suspendClientThread.await(
+							DirectConsumer.this.shutdownTimeout, TimeUnit.MILLISECONDS);
 					// AcknowlwdgeMode.NONE message will be lost
 					return;
 				}
@@ -564,7 +561,7 @@ public class BlockingQueueConsumer implements RabbitConsumer {
 				}
 			}
 			if (logger.isDebugEnabled()) {
-				logger.debug("Storing delivery for " + BlockingQueueConsumer.this);
+				logger.debug("Storing delivery for " + DirectConsumer.this);
 			}
 			try {
 				queue.put(new Delivery(envelope, properties, body));

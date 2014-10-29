@@ -104,7 +104,7 @@ public class BlockingQueueConsumerTests {
 			throws Exception, IOException {
 		ConnectionFactory connectionFactory = mock(ConnectionFactory.class);
 		Channel channel = mock(Channel.class);
-		BlockingQueueConsumer blockingQueueConsumer = new BlockingQueueConsumer(connectionFactory,
+		RabbitConsumer blockingQueueConsumer = new BlockingQueueConsumer(connectionFactory,
 				new DefaultMessagePropertiesConverter(), new ActiveObjectCounter<BlockingQueueConsumer>(),
 				AcknowledgeMode.AUTO, true, 1, "testQ");
 		testRequeueOrNotGuts(ex, expectedRequeue, channel, blockingQueueConsumer);
@@ -115,14 +115,14 @@ public class BlockingQueueConsumerTests {
 		ConnectionFactory connectionFactory = mock(ConnectionFactory.class);
 		Channel channel = mock(Channel.class);
 		boolean defaultRequeueRejected = false;
-		BlockingQueueConsumer blockingQueueConsumer = new BlockingQueueConsumer(connectionFactory,
+		RabbitConsumer blockingQueueConsumer = new BlockingQueueConsumer(connectionFactory,
 				new DefaultMessagePropertiesConverter(), new ActiveObjectCounter<BlockingQueueConsumer>(),
 				AcknowledgeMode.AUTO, true, 1, defaultRequeueRejected, "testQ");
 		testRequeueOrNotGuts(ex, expectedRequeue, channel, blockingQueueConsumer);
 	}
 
 	private void testRequeueOrNotGuts(Exception ex, boolean expectedRequeue,
-			Channel channel, BlockingQueueConsumer blockingQueueConsumer)
+			Channel channel, RabbitConsumer blockingQueueConsumer)
 			throws Exception, IOException {
 		DirectFieldAccessor dfa = new DirectFieldAccessor(blockingQueueConsumer);
 		dfa.setPropertyValue("channel", channel);
