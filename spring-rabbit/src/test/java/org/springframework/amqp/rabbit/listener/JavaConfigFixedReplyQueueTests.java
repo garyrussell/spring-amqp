@@ -89,7 +89,7 @@ public class JavaConfigFixedReplyQueueTests {
 			RabbitTemplate template = new RabbitTemplate(rabbitConnectionFactory());
 			template.setExchange(ex().getName());
 			template.setRoutingKey("test");
-			template.setReplyQueue(replyQueue());
+			template.setReplyQueue(new Queue(ex().getName() + "/bar"));
 			return template;
 		}
 
@@ -128,6 +128,11 @@ public class JavaConfigFixedReplyQueueTests {
 		@Bean
 		public Binding binding() {
 			return BindingBuilder.bind(requestQueue()).to(ex()).with("test");
+		}
+
+		@Bean
+		public Binding replyBinding() {
+			return BindingBuilder.bind(replyQueue()).to(ex()).with("bar");
 		}
 
 		/**
