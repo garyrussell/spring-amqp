@@ -18,6 +18,7 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -40,6 +41,7 @@ import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
 import org.springframework.util.StringUtils;
 
+import com.rabbitmq.client.Address;
 import com.rabbitmq.client.AlreadyClosedException;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.ShutdownListener;
@@ -97,6 +99,14 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 
 	private final Map<Connection, Semaphore> checkoutPermits = new HashMap<Connection, Semaphore>();
 
+	private final Set<Connection> connectionsToClose = Collections.synchronizedSet(new HashSet<Connection>());
+
+	/** Synchronization monitor for the shared Connection */
+	private final Object connectionMonitor = new Object();
+
+	/** Executor used for deferred close and fail back if no explicit executor set. */
+	private final ExecutorService executor = Executors.newCachedThreadPool();
+
 	private volatile long channelCheckoutTimeout = 0;
 
 	private volatile CacheMode cacheMode = CacheMode.CHANNEL;
@@ -119,12 +129,9 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 
 	private volatile boolean initialized;
 
-	/** Synchronization monitor for the shared Connection */
-	private final Object connectionMonitor = new Object();
+	private volatile long failBackInterval;
 
-	/** Executor used for deferred close if no explicit executor set. */
-	private final ExecutorService deferredCloseExecutor = Executors.newCachedThreadPool();
-
+	private volatile long nextFailBackAttempt = Long.MAX_VALUE;
 
 	/**
 	 * Create a new CachingConnectionFactory initializing the hostname to be the value returned from
@@ -241,6 +248,21 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 	 */
 	public void setChannelCheckoutTimeout(long channelCheckoutTimeout) {
 		this.channelCheckoutTimeout = channelCheckoutTimeout;
+	}
+
+	/**
+	 * When greater than zero and multiple broker addresses are provided, the time interval
+	 * in milliseconds between attempts to connect to the primary address whenever another
+	 * address has been used when the primary is not available. Existing channels/connections
+	 * will not be closed until they are returned to the cache. With {@link CacheMode#CHANNEL},
+	 * the single connection will be closed when the last channel is returned to the cache.
+	 * with {@link CacheMode#CONNECTION}, each connection will be closed when its last channel
+	 * is returned to the cache. In both modes, new connections/channels will be served from
+	 * the primary server.
+	 * @param failBackInterval the failBackInterval to set.
+	 */
+	protected void setFailBackInterval(long failBackInterval) {
+		this.failBackInterval = failBackInterval;
 	}
 
 	@Override
@@ -438,6 +460,14 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 
 	@Override
 	public final Connection createConnection() throws AmqpException {
+		Connection connection = doCreateConnection();
+		if (this.failBackInterval > 0) {
+			scheduleFailbackIfNecessary(connection);
+		}
+		return connection;
+	}
+
+	private Connection doCreateConnection() throws AmqpException {
 		synchronized (this.connectionMonitor) {
 			if (this.cacheMode == CacheMode.CHANNEL) {
 				if (this.connection == null) {
@@ -486,6 +516,47 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 			}
 		}
 		return null;
+	}
+
+	private void scheduleFailbackIfNecessary(Connection connection) {
+		Address[] addresses = getAddresses();
+		if (addresses.length > 1 && addresses[0] != connection.getAddress()) {
+			this.nextFailBackAttempt = System.currentTimeMillis() + this.failBackInterval;
+		}
+	}
+
+	private synchronized void tryFailBack(Connection connection) {
+		long now = System.currentTimeMillis();
+		if (this.nextFailBackAttempt < now) {
+			this.nextFailBackAttempt = Long.MAX_VALUE;
+			ExecutorService executorService = (getExecutorService() != null
+					? getExecutorService()
+					: this.executor);
+			executorService.execute(new Runnable() {
+
+				@Override
+				public void run() {
+					if (cacheMode.equals(CacheMode.CHANNEL)) {
+						try {
+							ChannelCachingConnectionProxy newConnection = new ChannelCachingConnectionProxy(
+									CachingConnectionFactory.super.createBareConnection(true));
+							CachingConnectionFactory.this.connectionsToClose
+									.add(CachingConnectionFactory.this.connection);
+							CachingConnectionFactory.this.connection = newConnection;
+						}
+						catch (IOException e) {
+							logger.debug("Failback failed", e);
+							CachingConnectionFactory.this.nextFailBackAttempt = System.currentTimeMillis()
+									+ CachingConnectionFactory.this.failBackInterval;
+						}
+					}
+					else {
+						// TODO CacheMode.CONNECTION
+					}
+				}
+
+			});
+		}
 	}
 
 	/**
@@ -593,7 +664,7 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 			}
 			else if (methodName.equals("close")) {
 				// Handle close method: don't pass the call on.
-				if (active) {
+				if (!mustRelease() && CachingConnectionFactory.this.active) {
 					synchronized (this.channelList) {
 						if (!RabbitUtils.isPhysicalCloseRequired() &&
 								(this.channelList.size() < getChannelCacheSize()
@@ -650,6 +721,14 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 			}
 		}
 
+		/**
+		 *
+		 * @return true if the channel must be closed.
+		 */
+		private boolean mustRelease() {
+			return !this.theConnection.equals(CachingConnectionFactory.this.connection);
+		}
+
 		private void releasePermit() {
 			if (CachingConnectionFactory.this.channelCheckoutTimeout > 0) {
 				Semaphore checkoutPermits = CachingConnectionFactory.this.checkoutPermits.get(this.theConnection);
@@ -700,7 +779,7 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 								CachingConnectionFactory.this.publisherReturns)) {
 					ExecutorService executorService = (getExecutorService() != null
 							? getExecutorService()
-							: CachingConnectionFactory.this.deferredCloseExecutor);
+							: CachingConnectionFactory.this.executor);
 					final Channel channel = CachedChannelInvocationHandler.this.target;
 					executorService.execute(new Runnable() {
 
@@ -743,6 +822,15 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 			finally {
 				this.target = null;
 			}
+
+			if (mustRelease()) {
+				/*
+				 * TODO now we need to figure out that this was the last channel and close
+				 * the connection.
+				 * The problem is we don't currently track in-use channels, only idle ones.
+				 * I don't want to do that.
+				 */
+			}
 		}
 
 	}
@@ -763,6 +851,7 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 
 		@Override
 		public Channel createChannel(boolean transactional) {
+			tryFailBack(this.target);
 			return getChannel(this, transactional);
 		}
 
@@ -849,6 +938,11 @@ public class CachingConnectionFactory extends AbstractConnectionFactory implemen
 				return false;
 			}
 			return true;
+		}
+
+		@Override
+		public Address getAddress() {
+			return this.target.getAddress();
 		}
 
 		@Override

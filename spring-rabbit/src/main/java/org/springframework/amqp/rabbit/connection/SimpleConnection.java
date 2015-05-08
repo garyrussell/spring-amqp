@@ -17,6 +17,7 @@ import java.io.IOException;
 import org.springframework.amqp.rabbit.support.RabbitExceptionTranslator;
 import org.springframework.util.ObjectUtils;
 
+import com.rabbitmq.client.Address;
 import com.rabbitmq.client.Channel;
 
 /**
@@ -32,10 +33,18 @@ public class SimpleConnection implements Connection {
 
 	private final int closeTimeout;
 
+	private final Address address;
+
 	public SimpleConnection(com.rabbitmq.client.Connection delegate,
 			int closeTimeout) {
+		this(delegate, closeTimeout, null);
+	}
+
+	public SimpleConnection(com.rabbitmq.client.Connection delegate,
+			int closeTimeout, Address address) {
 		this.delegate = delegate;
 		this.closeTimeout = closeTimeout;
+		this.address = address;
 	}
 
 	@Override
@@ -69,10 +78,16 @@ public class SimpleConnection implements Connection {
 	}
 
 	@Override
+	public Address getAddress() {
+		return this.address;
+	}
+
+	@Override
 	public String toString() {
 		return "SimpleConnection@"
 				+ ObjectUtils.getIdentityHexString(this)
-				+ " [delegate=" + delegate + "]";
+				+ " [delegate=" + delegate
+				+ " address=" + address + "]";
 	}
 
 }

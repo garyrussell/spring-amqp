@@ -215,6 +215,10 @@ public class SingleConnectionFactory extends AbstractConnectionFactory {
 			return "Shared Rabbit Connection: " + this.target;
 		}
 
+		public InetAddress getAddress() {
+			return null;
+		}
+
 	}
 
 }

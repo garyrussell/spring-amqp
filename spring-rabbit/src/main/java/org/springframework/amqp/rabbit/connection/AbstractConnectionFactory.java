@@ -15,6 +15,7 @@ package org.springframework.amqp.rabbit.connection;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -122,6 +123,10 @@ public abstract class AbstractConnectionFactory implements ConnectionFactory, Di
 		this.addresses = null;
 	}
 
+	protected Address[] getAddresses() {
+		return addresses;
+	}
+
 	/**
 	 * A composite connection listener to be used by subclasses when creating and closing connections.
 	 *
@@ -186,7 +191,7 @@ public abstract class AbstractConnectionFactory implements ConnectionFactory, Di
 		}
 	}
 
-	protected ExecutorService getExecutorService() {
+	protected synchronized ExecutorService getExecutorService() {
 		return executorService;
 	}
 
@@ -206,23 +211,41 @@ public abstract class AbstractConnectionFactory implements ConnectionFactory, Di
 
 	protected final Connection createBareConnection() {
 		try {
-			Connection connection = null;
-			if (this.addresses != null) {
-				connection = new SimpleConnection(this.rabbitConnectionFactory.newConnection(this.executorService, this.addresses),
-									this.closeTimeout);
-			}
-			else {
-				connection = new SimpleConnection(this.rabbitConnectionFactory.newConnection(this.executorService),
-									this.closeTimeout);
-			}
-			if (logger.isInfoEnabled()) {
-				logger.info("Created new connection: " + connection);
-			}
-			return connection;
+			return createBareConnection(false);
 		}
 		catch (IOException e) {
 			throw RabbitExceptionTranslator.convertRabbitAccessException(e);
 		}
+	}
+
+	protected Connection createBareConnection(boolean primaryOnly) throws IOException {
+		Connection connection = null;
+		if (this.addresses != null) {
+			IOException lastException = null;
+			for (Address address : this.addresses) {
+				try {
+					connection = new SimpleConnection(this.rabbitConnectionFactory.newConnection(this.executorService, this.addresses),
+									this.closeTimeout, address);
+				}
+				catch (IOException e) {
+					lastException = e;
+				}
+				if (primaryOnly) {
+					break;
+				}
+			}
+			if (connection == null) {
+				throw new IOException("Cannot connect to any of " + Arrays.asList(this.addresses), lastException);
+			}
+		}
+		else {
+			connection = new SimpleConnection(this.rabbitConnectionFactory.newConnection(this.executorService),
+								this.closeTimeout);
+		}
+		if (logger.isInfoEnabled()) {
+			logger.info("Created new connection: " + connection);
+		}
+		return connection;
 	}
 
 	protected final  String getDefaultHostName() {
