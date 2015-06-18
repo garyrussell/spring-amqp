@@ -96,7 +96,8 @@ public class RemotingTests {
 
 		@Override
 		public String echo(String message) {
-			return "echo:" + message;
+//			return "echo:" + message;
+			throw new RuntimeException("No consumers available to process this request");
 		}
 
 		@Override

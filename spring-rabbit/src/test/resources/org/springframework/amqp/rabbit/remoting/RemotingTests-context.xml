@@ -25,7 +25,16 @@
 
 	<rabbit:admin connection-factory="connectionFactory" />
 
-	<rabbit:queue name="remoting.test.queue" />
+	<rabbit:queue name="remoting.test.queue">
+		<rabbit:queue-arguments>
+			<entry key="x-message-ttl">
+				<value type="java.lang.Long">0</value>
+			</entry>
+			<entry key="x-dead-letter-exchange">
+				<value type="java.lang.String">remoting.dlx</value>
+			</entry>
+		</rabbit:queue-arguments>
+	</rabbit:queue>
 
 	<rabbit:direct-exchange name="remoting.test.exchange">
 		<rabbit:bindings>
@@ -33,7 +42,16 @@
 		</rabbit:bindings>
 	</rabbit:direct-exchange>
 
+	<rabbit:queue name="remoting.test.dlq" />
+
+	<rabbit:direct-exchange name="remoting.dlx">
+		<rabbit:bindings>
+			<rabbit:binding queue="remoting.test.dlq" key="remoting.test.binding" />
+		</rabbit:bindings>
+	</rabbit:direct-exchange>
+
 	<rabbit:listener-container connection-factory="connectionFactory">
-		<rabbit:listener ref="listener" queue-names="remoting.test.queue" />
+		<rabbit:listener ref="listener" queue-names="remoting.test.dlq" />
 	</rabbit:listener-container>
+
 </beans>
