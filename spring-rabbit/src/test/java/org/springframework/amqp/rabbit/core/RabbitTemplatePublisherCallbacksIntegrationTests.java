@@ -147,14 +147,18 @@ public class RabbitTemplatePublisherCallbacksIntegrationTests {
 
 	@Test
 	public void testPublisherConfirmReceived() throws Exception {
-		final CountDownLatch latch = new CountDownLatch(10000);
+		final CountDownLatch latch = new CountDownLatch(100000);
 		final AtomicInteger acks = new AtomicInteger();
+		final AtomicInteger nullCorrelations = new AtomicInteger();
 		templateWithConfirmsEnabled.setConfirmCallback(new ConfirmCallback() {
 
 			@Override
 			public void confirm(CorrelationData correlationData, boolean ack, String cause) {
 				acks.incrementAndGet();
 				latch.countDown();
+				if (correlationData == null) {
+					nullCorrelations.incrementAndGet();
+				}
 			}
 		});
 		ExecutorService exec = Executors.newCachedThreadPool();
@@ -164,7 +168,7 @@ public class RabbitTemplatePublisherCallbacksIntegrationTests {
 				@Override
 				public void run() {
 					try {
-						for (int i = 0; i < 100; i++) {
+						for (int i = 0; i < 1000; i++) {
 							templateWithConfirmsEnabled.convertAndSend(ROUTE, (Object) "message", new CorrelationData("abc"));
 						}
 					}
@@ -197,6 +201,8 @@ public class RabbitTemplatePublisherCallbacksIntegrationTests {
 		new DirectFieldAccessor(connectionFactoryWithConfirmsEnabled).setPropertyValue("logger", logger);
 		cleanUp();
 		verify(logger, never()).error(any());
+		assertEquals(100000, acks.get());
+		assertEquals(0, nullCorrelations.get());
 	}
 
 	@Test
