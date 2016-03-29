@@ -858,8 +858,10 @@ public class CachingConnectionFactory extends AbstractConnectionFactory
 				Semaphore checkoutPermits = CachingConnectionFactory.this.checkoutPermits.get(this.theConnection);
 				if (checkoutPermits != null) {
 					checkoutPermits.release();
-					logger.error("Released permit for " + this.theConnection + ", remaining:"
+					if (logger.isDebugEnabled()) {
+						logger.debug("Released permit for " + this.theConnection + ", remaining:"
 							+ checkoutPermits.availablePermits());
+					}
 				}
 				else {
 					logger.error("LEAKAGE: No permits map entry for " + this.theConnection);
