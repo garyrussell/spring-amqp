@@ -59,9 +59,9 @@ public abstract class AbstractJsonMessageConverter extends AbstractMessageConver
 				: DEFAULT_CHARSET;
 	}
 
-    public String getDefaultCharset() {
-        return this.defaultCharset;
-    }
+	public String getDefaultCharset() {
+		return this.defaultCharset;
+	}
 
 	@Override
 	public void setBeanClassLoader(ClassLoader classLoader) {
