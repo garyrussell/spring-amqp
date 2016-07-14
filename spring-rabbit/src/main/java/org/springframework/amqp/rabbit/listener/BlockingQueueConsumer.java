@@ -135,6 +135,10 @@ public class BlockingQueueConsumer {
 
 	private BackOffExecution backOffExecution;
 
+	private long shutdownTimeout;
+
+	private volatile long abortStarted;
+
 	/**
 	 * Create a consumer. The consumer must not attempt to use
 	 * the connection factory or communicate with the broker
@@ -251,6 +255,10 @@ public class BlockingQueueConsumer {
 	public final void setQuiesce(long shutdownTimeout) {
 	}
 
+	public void setShutdownTimeout(long shutdownTimeout) {
+		this.shutdownTimeout = shutdownTimeout;
+	}
+
 	/**
 	 * Set the number of retries after passive queue declaration fails.
 	 * @param declarationRetries The number of retries, default 3.
@@ -320,6 +328,7 @@ public class BlockingQueueConsumer {
 				break;
 			}
 		}
+		this.abortStarted = System.currentTimeMillis();
 	}
 
 	protected boolean hasDelivery() {
@@ -327,7 +336,8 @@ public class BlockingQueueConsumer {
 	}
 
 	protected boolean cancelled() {
-		return this.cancelled.get();
+		return this.cancelled.get() || (this.abortStarted > 0 &&
+				this.abortStarted + this.shutdownTimeout > System.currentTimeMillis());
 	}
 
 	/**
@@ -604,6 +614,7 @@ public class BlockingQueueConsumer {
 		ConnectionFactoryUtils.releaseResources(this.resourceHolder);
 		this.deliveryTags.clear();
 		this.consumer = null;
+		this.queue.clear(); // in case we still have a client thread blocked
 	}
 
 	/**
@@ -743,7 +754,12 @@ public class BlockingQueueConsumer {
 				logger.warn("Cancel received for " + consumerTag + "; " + BlockingQueueConsumer.this);
 			}
 			BlockingQueueConsumer.this.consumerTags.remove(consumerTag);
-			basicCancel();
+			if (BlockingQueueConsumer.this.consumerTags.isEmpty()) {
+				BlockingQueueConsumer.this.cancelled.set(true);
+			}
+			else {
+				basicCancel();
+			}
 		}
 
 		@Override
@@ -764,7 +780,13 @@ public class BlockingQueueConsumer {
 				logger.debug("Storing delivery for " + BlockingQueueConsumer.this);
 			}
 			try {
-				BlockingQueueConsumer.this.queue.put(new Delivery(consumerTag, envelope, properties, body));
+				if (BlockingQueueConsumer.this.abortStarted > 0) {
+					BlockingQueueConsumer.this.queue.offer(new Delivery(consumerTag, envelope, properties, body),
+							BlockingQueueConsumer.this.shutdownTimeout, TimeUnit.MILLISECONDS);
+				}
+				else {
+					BlockingQueueConsumer.this.queue.put(new Delivery(consumerTag, envelope, properties, body));
+				}
 			}
 			catch (InterruptedException e) {
 				Thread.currentThread().interrupt();

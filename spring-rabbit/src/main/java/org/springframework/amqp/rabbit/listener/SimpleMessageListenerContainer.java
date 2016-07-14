@@ -1040,6 +1040,7 @@ public class SimpleMessageListenerContainer extends AbstractMessageListenerConta
 			consumer.setTagStrategy(this.consumerTagStrategy);
 		}
 		consumer.setBackOffExecution(this.recoveryBackOff.start());
+		consumer.setShutdownTimeout(this.shutdownTimeout);
 		return consumer;
 	}
 
