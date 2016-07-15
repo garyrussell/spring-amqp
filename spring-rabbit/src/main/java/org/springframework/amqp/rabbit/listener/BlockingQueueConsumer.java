@@ -751,7 +751,9 @@ public class BlockingQueueConsumer {
 		@Override
 		public void handleCancel(String consumerTag) throws IOException {
 			if (logger.isWarnEnabled()) {
-				logger.warn("Cancel received for " + consumerTag + "; " + BlockingQueueConsumer.this);
+				logger.warn("Cancel received for " + consumerTag + " ("
+						+ BlockingQueueConsumer.this.consumerTags.get(consumerTag)
+						+ "); " + BlockingQueueConsumer.this);
 			}
 			BlockingQueueConsumer.this.consumerTags.remove(consumerTag);
 			if (BlockingQueueConsumer.this.consumerTags.isEmpty()) {
@@ -765,7 +767,9 @@ public class BlockingQueueConsumer {
 		@Override
 		public void handleCancelOk(String consumerTag) {
 			if (logger.isDebugEnabled()) {
-				logger.debug("Received cancellation notice for tag " + consumerTag + "; " + BlockingQueueConsumer.this);
+				logger.debug("Received cancelOk for tag " + consumerTag + " ("
+						+ BlockingQueueConsumer.this.consumerTags.get(consumerTag)
+						+ "); " + BlockingQueueConsumer.this);
 			}
 			BlockingQueueConsumer.this.consumerTags.remove(consumerTag);
 			if (BlockingQueueConsumer.this.consumerTags.isEmpty()) {
