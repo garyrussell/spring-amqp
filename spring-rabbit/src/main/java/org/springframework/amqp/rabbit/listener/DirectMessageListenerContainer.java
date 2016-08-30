@@ -18,9 +18,13 @@ package org.springframework.amqp.rabbit.listener;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.commons.logging.Log;
+
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
 import org.springframework.amqp.rabbit.connection.Connection;
@@ -43,20 +47,26 @@ import com.rabbitmq.client.Envelope;
  * listener directly on the rabbit client consumer thread. There is no txSize property -
  * each message is acked (or nacked) individually.
  * <p>
- * This should be considered experimental at this time; a fully-functional listener
- * container based on this is planned for the 2.0 release.
- * <p>
  * TODO: declare queues; advice chain; error handler; AmqpRejectAndDontRequeueException;
  * listener container factory; ...
  * @author Gary Russell
- * @since 1.6
+ * @since 2.0
  *
  */
-public class SimpleDirectMessageListenerContainer extends AbstractMessageListenerContainer {
+public class DirectMessageListenerContainer extends AbstractMessageListenerContainer {
 
 	private final List<SimpleConsumer> consumers = new ArrayList<SimpleConsumer>();
 
 	private final MessagePropertiesConverter messagePropertiesConverter = new DefaultMessagePropertiesConverter();
+
+	private final ContainerDelegate delegate = new ContainerDelegate() {
+		@Override
+		public void invokeListener(Channel channel, Message message) throws Exception {
+			DirectMessageListenerContainer.super.invokeListener(channel, message);
+		}
+	};
+
+	private ContainerDelegate proxy = this.delegate;
 
 	private volatile TaskExecutor taskExecutor;
 
@@ -64,13 +74,15 @@ public class SimpleDirectMessageListenerContainer extends AbstractMessageListene
 
 	private volatile int prefetch = 1;
 
-	private volatile boolean requeueRejected = false;
+	private volatile boolean defaultRequeueRejected = false;
+
+	private volatile long recoveryInterval;
 
 	/**
 	 * Create an instance with the provided connection factory.
 	 * @param connectionFactory the connection factory.
 	 */
-	public SimpleDirectMessageListenerContainer(ConnectionFactory connectionFactory) {
+	public DirectMessageListenerContainer(ConnectionFactory connectionFactory) {
 		setConnectionFactory(connectionFactory);
 	}
 
@@ -101,13 +113,22 @@ public class SimpleDirectMessageListenerContainer extends AbstractMessageListene
 	 * Set to false to requeue failed deliveries.
 	 * @param requeueRejected the requeue rejected.
 	 */
-	public void setRequeueRejected(boolean requeueRejected) {
-		this.requeueRejected = requeueRejected;
+	public void setDefaultRequeueRejected(boolean requeueRejected) {
+		this.defaultRequeueRejected = requeueRejected;
 	}
 
 	@Override
 	protected void doInitialize() throws Exception {
 		Assert.notNull(getQueueNames(), "queue(s) are required");
+		ContainerDelegate proxy = initializeProxy(this.delegate);
+		if (proxy != null) {
+			this.proxy = proxy;
+		}
+	}
+
+	@Override
+	protected void invokeListener(Channel channel, Message message) throws Exception {
+		this.proxy.invokeListener(channel, message);
 	}
 
 	@Override
@@ -116,42 +137,42 @@ public class SimpleDirectMessageListenerContainer extends AbstractMessageListene
 		if (this.taskExecutor == null) {
 			this.taskExecutor = new SimpleAsyncTaskExecutor((getBeanName() == null ? "container" : getBeanName()) + "-");
 		}
-		this.taskExecutor.execute(new Runnable() {
+		AtomicBoolean initialized = new AtomicBoolean();
+		this.taskExecutor.execute(() -> {
 
-			boolean initialized = false;
-
-			@Override
-			public void run() {
-				while (!initialized) {
+				while (!initialized.get() && isRunning()) {
 					try {
-						for (int i = 0; i < SimpleDirectMessageListenerContainer.this.consumersPerQueue; i++) {
+						for (int i = 0; i < DirectMessageListenerContainer.this.consumersPerQueue; i++) {
 							for (String queue : getQueueNames()) {
 								Connection connection = getConnectionFactory().createConnection();
-								Channel channel = connection.createChannel(false);
-								channel.basicQos(SimpleDirectMessageListenerContainer.this.prefetch);
+								Channel channel = connection.createChannel(isChannelTransacted());
+								channel.basicQos(DirectMessageListenerContainer.this.prefetch);
 								RabbitUtils.setPhysicalCloseRequired(true);
 								SimpleConsumer consumer = new SimpleConsumer(channel, queue);
-								SimpleDirectMessageListenerContainer.this.consumers.add(consumer);
+								DirectMessageListenerContainer.this.consumers.add(consumer);
 								channel.basicConsume(queue, consumer);
 							}
 						}
 					}
 					catch (Exception e) {
-						logger.error("Error creating consumer", e);
+						logger.error("Error creating consumer; retrying in "
+								+ DirectMessageListenerContainer.this.recoveryInterval, e);
 						doShutdown();
 						try {
-							Thread.sleep(5000);
+							Thread.sleep(DirectMessageListenerContainer.this.recoveryInterval);
 						}
 						catch (InterruptedException e1) {
 							Thread.currentThread().interrupt();
 						}
-						continue;
+						continue; // initialization failed; try again having rested for recovery-interval
 					}
-					initialized = true;
+					initialized.set(true);
 				}
-			}
 
 		});
+		if (logger.isInfoEnabled()) {
+			logger.info("Container initialized for " + Arrays.asList(getQueueNames()));
+		}
 	}
 
 	@Override
@@ -160,19 +181,18 @@ public class SimpleDirectMessageListenerContainer extends AbstractMessageListene
 		for (DefaultConsumer consumer : this.consumers) {
 			try {
 				consumer.getChannel().basicCancel(consumer.getConsumerTag());
-				consumer.getChannel().close();
+				RabbitUtils.closeChannel(consumer.getChannel());
 			}
 			catch (IOException e) {
 				logger.error("Cancel Error", e);
-			}
-			catch (TimeoutException e) {
-				logger.error("Timeout Error on channel close", e);
 			}
 		}
 		this.consumers.clear();
 	}
 
 	private final class SimpleConsumer extends DefaultConsumer {
+
+		private final Log logger = DirectMessageListenerContainer.this.logger;
 
 		private final String queue;
 
@@ -187,22 +207,38 @@ public class SimpleDirectMessageListenerContainer extends AbstractMessageListene
 		@Override
 		public void handleDelivery(String consumerTag, Envelope envelope,
 				BasicProperties properties, byte[] body) throws IOException {
-			MessageProperties messageProperties = SimpleDirectMessageListenerContainer.this.messagePropertiesConverter
+			MessageProperties messageProperties = DirectMessageListenerContainer.this.messagePropertiesConverter
 					.toMessageProperties(properties, envelope, "UTF-8");
 			messageProperties.setMessageCount(0);
 			messageProperties.setConsumerTag(consumerTag);
 			messageProperties.setConsumerQueue(this.queue);
 			Message message = new Message(body, messageProperties);
 			try {
+				if (!DirectMessageListenerContainer.this.isRunning()) {
+					if (this.logger.isWarnEnabled()) {
+						this.logger.warn("Rejecting received message because the listener container has been stopped: "
+								+ message);
+					}
+					throw new MessageRejectedWhileStoppingException();
+				}
 				invokeListener(getChannel(), message);
 				if (this.ackRequired) {
 					getChannel().basicAck(envelope.getDeliveryTag(), false);
 				}
 			}
 			catch (Exception e) {
+				logger.error("Failed to invoke listener", e);
+				boolean shouldRequeue = DirectMessageListenerContainer.this.defaultRequeueRejected ||
+						e instanceof MessageRejectedWhileStoppingException;
+				Throwable t = e;
+				while (shouldRequeue && t != null) {
+					if (t instanceof AmqpRejectAndDontRequeueException) {
+						shouldRequeue = false;
+					}
+					t = t.getCause();
+				}
 				if (this.ackRequired) {
-					getChannel().basicNack(envelope.getDeliveryTag(), false,
-							SimpleDirectMessageListenerContainer.this.requeueRejected);
+					getChannel().basicNack(envelope.getDeliveryTag(), false, shouldRequeue);
 				}
 			}
 		}

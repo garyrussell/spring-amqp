@@ -25,6 +25,7 @@ import org.junit.Test;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.listener.adapter.MessageListenerAdapter;
+import org.springframework.amqp.rabbit.listener.adapter.ReplyingMessageListener;
 import org.springframework.amqp.rabbit.test.BrokerRunning;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
@@ -45,13 +46,11 @@ public class DirectMessageListenerContainerTests {
 		executor.setThreadNamePrefix("client-");
 		executor.afterPropertiesSet();
 		cf.setExecutor(executor);
-		SimpleDirectMessageListenerContainer container = new SimpleDirectMessageListenerContainer(cf);
+		DirectMessageListenerContainer container = new DirectMessageListenerContainer(cf);
 		container.setQueueNames("testQ1", "testQ2");
 		container.setConsumersPerQueue(2);
-		container.setMessageListener(new MessageListenerAdapter(new Object() {
+		container.setMessageListener(new MessageListenerAdapter((ReplyingMessageListener<String, String>) in -> {
 
-			@SuppressWarnings("unused")
-			public String handleMessage(String in) {
 				LogFactory.getLog(this.getClass()).info(in);
 				if ("foo".equals(in) || "bar".equals(in)) {
 					return in.toUpperCase();
@@ -59,12 +58,11 @@ public class DirectMessageListenerContainerTests {
 				else {
 					return null;
 				}
-			}
-
-		}));
+			}));
 		container.afterPropertiesSet();
 		container.start();
 		RabbitTemplate template = new RabbitTemplate(cf);
+		template.setReplyTimeout(600000);
 		assertEquals("FOO", template.convertSendAndReceive("testQ1", "foo"));
 		assertEquals("BAR", template.convertSendAndReceive("testQ2", "bar"));
 	}
