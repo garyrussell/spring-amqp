@@ -83,6 +83,7 @@ subprojects { subproject ->
 	targetCompatibility=1.8
 
 	ext {
+		assertjVersion = '3.4.1'
 		cglibVersion = '3.1'
 		commonsCliVersion = '1.2'
 		commonsIoVersion = '2.4'
@@ -93,6 +94,7 @@ subprojects { subproject ->
 		log4jVersion = '2.6.2'
 		logbackVersion = '1.1.2'
 		mockitoVersion = '1.9.5'
+		protonVersion = '0.15.0'
 		rabbitmqVersion = project.hasProperty('rabbitmqVersion') ? project.rabbitmqVersion : '4.0.0.M2'
 		rabbitmqHttpClientVersion = '1.0.0.RELEASE'
 
@@ -232,6 +234,20 @@ project('spring-rabbit') {
 		compile ("org.apache.logging.log4j:log4j-core:$log4jVersion", optional)
 
 		testCompile "commons-cli:commons-cli:$commonsCliVersion"
+
+	}
+
+}
+
+project('spring-proton') {
+	description = 'Spring for Apache Qpid Proton Support'
+	dependencies {
+
+		compile project(":spring-amqp")
+
+		compile "org.apache.qpid:proton-j:$protonVersion"
+
+		testCompile "org.assertj:assertj-core:$assertjVersion"
 
 	}
 
