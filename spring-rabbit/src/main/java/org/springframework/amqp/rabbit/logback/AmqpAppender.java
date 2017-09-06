@@ -29,6 +29,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.springframework.amqp.AmqpException;
@@ -136,6 +137,8 @@ public class AmqpAppender extends AppenderBase<ILoggingEvent> {
 	{
 		this.routingKeyLayout.setPattern("%nopex%c.%p");
 	}
+
+	private final AtomicBoolean headerWritten = new AtomicBoolean();
 
 	/**
 	 * Configuration arbitrary application ID.
@@ -797,6 +800,13 @@ public class AmqpAppender extends AppenderBase<ILoggingEvent> {
 					// Set applicationId, if we're using one
 					if (AmqpAppender.this.applicationId != null) {
 						amqpProps.setAppId(AmqpAppender.this.applicationId);
+					}
+
+					if (AmqpAppender.this.encoder != null && AmqpAppender.this.headerWritten.compareAndSet(false, true)) {
+						byte[] header = AmqpAppender.this.encoder.headerBytes();
+						if (header != null && header.length > 0) {
+							rabbitTemplate.convertAndSend(AmqpAppender.this.exchangeName, routingKey, header);
+						}
 					}
 
 					if (AmqpAppender.this.abbreviator != null && logEvent instanceof LoggingEvent) {

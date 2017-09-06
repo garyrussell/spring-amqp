@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2016 the original author or authors.
+ * Copyright 2002-2017 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@ import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.connection.SingleConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.Bean;
@@ -42,6 +43,8 @@ public class AmqpAppenderConfiguration {
 	private static final String EXCHANGE = "logs";
 
 	private static final String ROUTING_KEY = "AmqpAppenderTest.#";
+
+	private static final String ENCODED_ROUTING_KEY = "encoded-AmqpAppenderTest.#";
 
 	@Bean
 	public SingleConnectionFactory connectionFactory() {
@@ -68,13 +71,30 @@ public class AmqpAppenderConfiguration {
 	}
 
 	@Bean
+	public Queue encodedQueue() {
+		return new Queue("encoded-" + QUEUE);
+	}
+
+	@Bean
 	public Binding testBinding() {
 		return BindingBuilder.bind(testQueue()).to(testExchange()).with(ROUTING_KEY);
 	}
 
 	@Bean
+	public Binding encodedBinding() {
+		return BindingBuilder.bind(encodedQueue()).to(testExchange()).with(ENCODED_ROUTING_KEY);
+	}
+
+	@Bean
 	public RabbitAdmin rabbitAdmin() {
 		return new RabbitAdmin(connectionFactory());
+	}
+
+	@Bean
+	public RabbitTemplate rabbitTemplate() {
+		RabbitTemplate rabbitTemplate = new RabbitTemplate(connectionFactory());
+		rabbitTemplate.setReceiveTimeout(10_000);
+		return rabbitTemplate;
 	}
 
 	@Bean
