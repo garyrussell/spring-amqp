@@ -550,11 +550,11 @@ public class RabbitAdmin implements AmqpAdmin, ApplicationContextAware, Applicat
 
 		this.logger.debug("Initializing declarations");
 		Collection<Exchange> contextExchanges = new LinkedList<Exchange>(
-				this.applicationContext.getBeansOfType(Exchange.class).values());
+				this.applicationContext.getBeansOfType(Exchange.class, false, false).values());
 		Collection<Queue> contextQueues = new LinkedList<Queue>(
-				this.applicationContext.getBeansOfType(Queue.class).values());
+				this.applicationContext.getBeansOfType(Queue.class, false, false).values());
 		Collection<Binding> contextBindings = new LinkedList<Binding>(
-				this.applicationContext.getBeansOfType(Binding.class).values());
+				this.applicationContext.getBeansOfType(Binding.class, false, false).values());
 
 		processLegacyCollections(contextExchanges, contextQueues, contextBindings);
 		processDeclarables(contextExchanges, contextQueues, contextBindings);

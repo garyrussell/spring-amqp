@@ -21,6 +21,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.sameInstance;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -75,6 +76,8 @@ import org.springframework.amqp.rabbit.connection.SingleConnectionFactory;
 import org.springframework.amqp.rabbit.junit.BrokerRunning;
 import org.springframework.amqp.utils.test.TestUtils;
 import org.springframework.beans.DirectFieldAccessor;
+import org.springframework.beans.factory.FactoryBean;
+import org.springframework.beans.factory.config.AbstractFactoryBean;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationEvent;
@@ -83,6 +86,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Scope;
 import org.springframework.context.support.GenericApplicationContext;
 
@@ -203,12 +207,12 @@ public class RabbitAdminTests {
 			queues.put("adQ", new Queue("testq.ad", true, false, true));
 			queues.put("exclQ", new Queue("testq.excl", true, true, false));
 			queues.put("allQ", new Queue("testq.all", false, true, true));
-			when(ctx.getBeansOfType(Queue.class)).thenReturn(queues);
+			when(ctx.getBeansOfType(Queue.class, false, false)).thenReturn(queues);
 			Map<String, Exchange> exchanges = new HashMap<String, Exchange>();
 			exchanges.put("nonDurEx", new DirectExchange("testex.nonDur", false, false));
 			exchanges.put("adEx", new DirectExchange("testex.ad", true, true));
 			exchanges.put("allEx", new DirectExchange("testex.all", false, true));
-			when(ctx.getBeansOfType(Exchange.class)).thenReturn(exchanges);
+			when(ctx.getBeansOfType(Exchange.class, false, false)).thenReturn(exchanges);
 			rabbitAdmin.setApplicationContext(ctx);
 			rabbitAdmin.afterPropertiesSet();
 			Log logger = spy(TestUtils.getPropertyValue(rabbitAdmin, "logger", Log.class));
@@ -265,7 +269,9 @@ public class RabbitAdminTests {
 		admin.deleteExchange("e2");
 		admin.deleteExchange("e3");
 		admin.deleteExchange("e4");
-		assertNull(admin.getQueueProperties(ctx.getBean(Config.class).prototypeQueueName));
+		Config config = ctx.getBean(Config.class);
+		assertNull(admin.getQueueProperties(config.prototypeQueueName));
+		assertFalse("lazy FB instantiated", config.lazyFactoryBeanInstantiated);
 		ctx.close();
 	}
 
@@ -409,19 +415,21 @@ public class RabbitAdminTests {
 
 		public String prototypeQueueName = UUID.randomUUID().toString();
 
+		public volatile boolean lazyFactoryBeanInstantiated;
+
 		@Bean
 		public ConnectionFactory cf() {
 			return new CachingConnectionFactory("localhost");
 		}
 
 		@Bean
-		public RabbitAdmin admin(ConnectionFactory cf) {
-			return new RabbitAdmin(cf);
+		public RabbitAdmin admin() {
+			return new RabbitAdmin(cf());
 		}
 
 		@Bean
-		public RabbitTemplate template(ConnectionFactory cf) {
-			return new RabbitTemplate(cf);
+		public RabbitTemplate template() {
+			return new RabbitTemplate(cf());
 		}
 
 		@Bean
@@ -472,6 +480,25 @@ public class RabbitAdminTests {
 					new DirectExchange("e4", false, true),
 					new Queue("q4", false, false, true),
 					new Binding("q4", DestinationType.QUEUE, "e4", "k4", null));
+		}
+
+		@Bean
+		@Lazy
+		public FactoryBean<Object> lazyFB() {
+			this.lazyFactoryBeanInstantiated = true;
+			return new AbstractFactoryBean<Object>() {
+
+				@Override
+				public Class<?> getObjectType() {
+					return Object.class;
+				}
+
+				@Override
+				protected Object createInstance() throws Exception {
+					return new Object();
+				}
+
+			};
 		}
 
 	}
