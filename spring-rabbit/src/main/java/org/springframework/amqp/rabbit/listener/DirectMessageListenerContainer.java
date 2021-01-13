@@ -315,17 +315,21 @@ public class DirectMessageListenerContainer extends AbstractMessageListenerConta
 						|| this.consumersByQueue.get(queue).size() < newCount) { // NOSONAR never null
 					doConsumeFromQueue(queue);
 				}
-				List<SimpleConsumer> consumerList = this.consumersByQueue.get(queue);
-				if (consumerList != null && consumerList.size() > newCount) {
-					int delta = consumerList.size() - newCount;
-					for (int i = 0; i < delta; i++) {
-						int index = findIdleConsumer();
-						if (index >= 0) {
-							SimpleConsumer consumer = consumerList.remove(index);
-							if (consumer != null) {
-								cancelConsumer(consumer);
-							}
-						}
+				reduceConsumersIfIdle(newCount, queue);
+			}
+		}
+	}
+
+	private void reduceConsumersIfIdle(int newCount, String queue) {
+		List<SimpleConsumer> consumerList = this.consumersByQueue.get(queue);
+		if (consumerList != null && consumerList.size() > newCount) {
+			int delta = consumerList.size() - newCount;
+			for (int i = 0; i < delta; i++) {
+				int index = findIdleConsumer();
+				if (index >= 0) {
+					SimpleConsumer consumer = consumerList.remove(index);
+					if (consumer != null) {
+						cancelConsumer(consumer);
 					}
 				}
 			}
